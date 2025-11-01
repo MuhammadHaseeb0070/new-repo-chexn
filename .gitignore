@@ -1,0 +1,10 @@
+# In /chexn-project/.gitignore
+
+# All node_modules folders
+**/node_modules
+
+# All .env files
+**/.env
+
+# The specific backend service account key
+/backend/firebase-admin-key.json
