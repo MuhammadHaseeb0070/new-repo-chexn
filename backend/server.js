@@ -10,6 +10,15 @@ const { admin } = require('./config/firebase');
 const authMiddleware = require('./middleware/authMiddleware');
 // Import user routes
 const userRoutes = require('./routes/userRoutes');
+// Import check-in routes
+const checkinRoutes = require('./routes/checkinRoutes');
+const parentRoutes = require('./routes/parentRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const staffRoutes = require('./routes/staffRoutes');
+const districtRoutes = require('./routes/districtRoutes');
+const communicationRoutes = require('./routes/communicationRoutes');
+const employerRoutes = require('./routes/employerRoutes');
+const employerStaffRoutes = require('./routes/employerStaffRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -20,6 +29,14 @@ app.use(express.json());
 
 // --- Routes ---
 app.use('/api/users', userRoutes);
+app.use('/api/checkins', checkinRoutes);
+app.use('/api/parents', parentRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/staff', staffRoutes);
+app.use('/api/communications', communicationRoutes);
+app.use('/api/district', districtRoutes);
+app.use('/api/employer', employerRoutes);
+app.use('/api/employer-staff', employerStaffRoutes);
 
 // 1. Public Test Route (from Chunk 1)
 app.get('/api', (req, res) => {
