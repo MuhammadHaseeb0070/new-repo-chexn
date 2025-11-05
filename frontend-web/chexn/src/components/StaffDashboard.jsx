@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import apiClient from '../apiClient.js';
 import CommunicationThread from './CommunicationThread.jsx';
+import NotificationScheduler from './NotificationScheduler.jsx';
+import GeofenceManager from './GeofenceManager.jsx';
 import Spinner from './Spinner.jsx';
 
 // This component is smart. It takes a 'userType' prop (either 'student' or 'employee')
@@ -109,9 +111,17 @@ function StaffDashboard({ userType, refreshToken }) {
             {/* Check-in history */}
             <div className="lg:col-span-8">
               <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-                <h3 className="text-lg font-semibold text-gray-900">{userTypeName} Chex-N History</h3>
                 {selectedUserId ? (
-                  <div className="mt-4 space-y-3">
+                  <>
+                    <div className="mb-6">
+                      <GeofenceManager targetUserId={selectedUserId} />
+                    </div>
+                    <div className="mb-6">
+                      <NotificationScheduler targetUserId={selectedUserId} />
+                    </div>
+                    <hr className="my-6" />
+                    <h3 className="text-lg font-semibold text-gray-900">{userTypeName} Chex-N History</h3>
+                    <div className="mt-4 space-y-3">
                     {childCheckIns.length === 0 ? (
                       <p className="text-gray-500 text-sm">No Chex-Ns found.</p>
                     ) : (
@@ -135,7 +145,8 @@ function StaffDashboard({ userType, refreshToken }) {
                         </div>
                       ))
                     )}
-                  </div>
+                    </div>
+                  </>
                 ) : (
                   <p className="mt-4 text-gray-500">Select a {userTypeName.toLowerCase()} to see their history.</p>
                 )}

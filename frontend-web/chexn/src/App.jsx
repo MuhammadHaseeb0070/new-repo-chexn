@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import auth from "./firebaseClient.js";
+import { auth } from "./firebaseClient.js";
+import { requestNotificationPermission } from "./firebaseMessaging.js";
 import { onAuthStateChanged, signOut, sendEmailVerification } from "firebase/auth";
 import Login from "./components/login.jsx";
 import Spinner from "./components/Spinner.jsx";
@@ -12,12 +13,12 @@ import CreateStaff from "./components/CreateStaff.jsx";
 import CreateStudent from "./components/CreateStudent.jsx";
 // Removed TeacherDashboard (StudentList)
 import SelectRole from "./components/SelectRole.jsx";
-import CreateSchool from "./components/CreateSchool.jsx";
+import CreateInstitute from "./components/CreateInstitute.jsx";
 import CreateEmployerStaff from "./components/CreateEmployerStaff.jsx";
 import CreateEmployee from "./components/CreateEmployee.jsx";
 // Removed SupervisorDashboard
 import StaffDashboard from "./components/StaffDashboard.jsx";
-import SchoolList from "./components/SchoolList.jsx";
+import InstituteList from "./components/InstituteList.jsx";
 import SchoolStaffList from "./components/SchoolStaffList.jsx";
 import EmployerStaffList from "./components/EmployerStaffList.jsx";
 
@@ -77,6 +78,8 @@ function App() {
           .then(response => {
             // They have a profile, save it
             setUserProfile(response.data);
+            // Request push permission and register token
+            requestNotificationPermission();
           })
           .catch(error => {
             // A 404 means they are new and need to pick a role
@@ -189,8 +192,8 @@ function App() {
             {/* --- District Admin UI --- */}
             {userProfile.role === 'district-admin' && (
               <div className="space-y-4">
-                <CreateSchool onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
-                <SchoolList key={schoolsRefreshKey} />
+                <CreateInstitute onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
+                <InstituteList key={schoolsRefreshKey} />
               </div>
             )}
 

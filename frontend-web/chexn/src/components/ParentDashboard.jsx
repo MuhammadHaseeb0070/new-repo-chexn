@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import apiClient from '../apiClient.js';
 import CommunicationThread from './CommunicationThread.jsx';
+import NotificationScheduler from './NotificationScheduler.jsx';
+import GeofenceManager from './GeofenceManager.jsx';
 import Spinner from './Spinner.jsx';
 
 function ParentDashboard() {
@@ -132,7 +134,17 @@ function ParentDashboard() {
                     {childCheckIns.length === 0 && (
                       <div className="text-gray-500 text-sm">No check-ins found.</div>
                     )}
-                  </div>
+                   </div>
+                 )}
+                {selectedStudentId && (
+                  <>
+                    <div className="mt-6">
+                      <GeofenceManager targetUserId={selectedStudentId} />
+                    </div>
+                    <div className="mt-6">
+                      <NotificationScheduler targetUserId={selectedStudentId} />
+                    </div>
+                  </>
                 )}
               </div>
             </div>

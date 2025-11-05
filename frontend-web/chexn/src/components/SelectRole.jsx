@@ -6,6 +6,8 @@ function SelectRole() {
   const [selectedRole, setSelectedRole] = useState('parent');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [instituteName, setInstituteName] = useState('');
+  const [instituteType, setInstituteType] = useState('');
   const [message, setMessage] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,7 +19,7 @@ function SelectRole() {
     setMessage('Creating your profile...');
 
     try {
-      await apiClient.post('/users/create', { role: selectedRole, firstName, lastName });
+      await apiClient.post('/users/create', { role: selectedRole, firstName, lastName, instituteName, instituteType });
       // Our App.jsx listener will see the new profile and refresh the app
       // We'll add a manual reload just to be sure
       window.location.reload();
@@ -66,8 +68,37 @@ function SelectRole() {
                 <option value="school">K-12 School</option>
                 <option value="district">K-12 District</option>
                 <option value="employer">Employer</option>
+                <option value="college">College</option>
               </select>
             </div>
+            {selectedRole !== 'parent' && (
+              <>
+                <div className="md:col-span-2 space-y-1">
+                  <label className="block text-sm text-gray-600">
+                    {selectedRole === 'school' ? 'School Name' : (selectedRole === 'district' ? 'District Name' : 'Company Name')}
+                  </label>
+                  <input
+                    type="text"
+                    value={instituteName}
+                    onChange={(e) => setInstituteName(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-1">
+                  <label className="block text-sm text-gray-600">
+                    {selectedRole === 'school' ? 'School Type (e.g., Elementary)' : (selectedRole === 'district' ? 'District Type (e.g., Public)' : 'Industry (e.g., Tech)')}
+                  </label>
+                  <input
+                    type="text"
+                    value={instituteType}
+                    onChange={(e) => setInstituteType(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                  />
+                </div>
+              </>
+            )}
             <div className="md:col-span-2">
               <button type="submit" disabled={isSubmitting} className="w-full rounded-md bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                 {isSubmitting ? (<><Spinner /> <span className="text-white text-sm">Creating...</span></>) : 'Complete Registration'}

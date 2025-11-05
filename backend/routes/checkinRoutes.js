@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../config/firebase');
+const { db, admin } = require('../config/firebase');
+const { checkGeofenceAlert } = require('../utils/location.js');
 const authMiddleware = require('../middleware/authMiddleware');
 
 router.get('/', authMiddleware, async (req, res) => {
@@ -84,7 +85,7 @@ router.get('/student/:studentId', authMiddleware, async (req, res) => {
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const studentId = req.user.uid;
-    const { emojiCategory, specificFeeling } = req.body;
+    const { emojiCategory, specificFeeling, location } = req.body;
 
     if (!emojiCategory || !specificFeeling) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -102,7 +103,14 @@ router.post('/', authMiddleware, async (req, res) => {
       }
     };
 
+    if (location && location.lat && location.lon) {
+      newCheckIn.location = new admin.firestore.GeoPoint(location.lat, location.lon);
+    }
+
     const docRef = await db.collection('checkIns').add(newCheckIn);
+
+    // Fire-and-forget geofence alert (do not await)
+    try { checkGeofenceAlert(db, admin, newCheckIn); } catch (_) {}
 
     res.status(201).json({ id: docRef.id, ...newCheckIn });
   } catch (error) {

@@ -3,6 +3,38 @@ const router = express.Router();
 const { admin, db } = require("../config/firebase");
 const authMiddleware = require("../middleware/authMiddleware");
 
+// GET /my-students - list children linked to the logged-in parent
+router.get("/my-students", authMiddleware, async (req, res) => {
+  try {
+    const parentId = req.user.uid;
+    const linkRef = db.collection("parentStudentLinks").doc(parentId);
+    const linkDoc = await linkRef.get();
+
+    if (!linkDoc.exists) {
+      return res.status(200).json([]);
+    }
+
+    const studentUids = linkDoc.data().studentUids || [];
+    if (!Array.isArray(studentUids) || studentUids.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Fetch each student profile
+    const snapshots = await Promise.all(
+      studentUids.map((uid) => db.collection("users").doc(uid).get())
+    );
+
+    const students = snapshots
+      .filter((d) => d.exists)
+      .map((d) => ({ uid: d.id, ...d.data() }));
+
+    return res.status(200).json(students);
+  } catch (error) {
+    console.error("Error fetching parent's students:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/create-child", authMiddleware, async (req, res) => {
   try {
     // Security Check: Verify the user is a parent

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Spinner from './Spinner.jsx';
-import auth from '../firebaseClient.js';
+import { auth } from '../firebaseClient.js';
 import { sendPasswordResetEmail } from 'firebase/auth';
 
 function PasswordReset() {

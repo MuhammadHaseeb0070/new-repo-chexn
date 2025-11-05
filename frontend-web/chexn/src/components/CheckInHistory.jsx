@@ -59,7 +59,15 @@ function CheckInHistory({ refreshToken }) {
           <CommunicationThread checkInId={selectedCheckInId} />
           <button
             className="mt-3 border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white rounded-md px-4 py-2 transition-colors duration-200"
-            onClick={() => setSelectedCheckInId(null)}
+            onClick={async () => {
+              setSelectedCheckInId(null);
+              try {
+                const response = await apiClient.get('/checkins');
+                setCheckIns(response.data);
+              } catch (error) {
+                console.error('Error refreshing check-ins:', error);
+              }
+            }}
           >
             Close Thread
           </button>

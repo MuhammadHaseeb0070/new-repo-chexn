@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { db } = require("../config/firebase");
+const { admin, db } = require("../config/firebase");
 const authMiddleware = require("../middleware/authMiddleware");
 
 router.get("/me", authMiddleware, async (req, res) => {
@@ -29,7 +29,7 @@ router.post("/create", authMiddleware, async (req, res) => {
     const { uid, email } = req.user;
 
     // 2. Get the desired role and names from the request body
-    const { role, firstName, lastName } = req.body;
+    const { role, firstName, lastName, instituteName, instituteType } = req.body;
 
     // 3. Check if user already exists
     const userRef = db.collection("users").doc(uid);
@@ -56,6 +56,12 @@ router.post("/create", authMiddleware, async (req, res) => {
     } else if (role === "school") {
       // 'school' from frontend becomes 'school-admin' in backend
       const organizationId = db.collection("organizations").doc().id;
+      await db.collection('organizations').doc(organizationId).set({
+        name: instituteName,
+        type: instituteType,
+        createdAt: new Date(),
+        ownerId: uid
+      });
       newUserData = {
         ...commonData,
         role: "school-admin",
@@ -64,6 +70,12 @@ router.post("/create", authMiddleware, async (req, res) => {
     } else if (role === "district") {
       // 'district' from frontend becomes 'district-admin' in backend
       const organizationId = db.collection("organizations").doc().id;
+      await db.collection('organizations').doc(organizationId).set({
+        name: instituteName,
+        type: instituteType,
+        createdAt: new Date(),
+        ownerId: uid
+      });
       newUserData = {
         ...commonData,
         role: "district-admin",
@@ -72,6 +84,12 @@ router.post("/create", authMiddleware, async (req, res) => {
     } else if (role === "employer") {
       // 'employer' from frontend becomes 'employer-admin' in backend
       const organizationId = db.collection("organizations").doc().id;
+      await db.collection('organizations').doc(organizationId).set({
+        name: instituteName,
+        type: instituteType,
+        createdAt: new Date(),
+        ownerId: uid
+      });
       newUserData = {
         ...commonData,
         role: "employer-admin",
@@ -90,6 +108,28 @@ router.post("/create", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Error creating user:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Save FCM token for push notifications
+router.post('/save-fcm-token', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Missing token' });
+    }
+
+    const userRef = db.collection('users').doc(uid);
+    await userRef.set({
+      fcmTokens: admin.firestore.FieldValue.arrayUnion(token)
+    }, { merge: true });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Error saving FCM token:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

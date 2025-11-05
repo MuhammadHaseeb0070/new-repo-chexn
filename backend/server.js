@@ -19,6 +19,8 @@ const districtRoutes = require('./routes/districtRoutes');
 const communicationRoutes = require('./routes/communicationRoutes');
 const employerRoutes = require('./routes/employerRoutes');
 const employerStaffRoutes = require('./routes/employerStaffRoutes');
+const geofenceRoutes = require('./routes/geofenceRoutes');
+const scheduleRoutes = require('./routes/scheduleRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -37,6 +39,8 @@ app.use('/api/communications', communicationRoutes);
 app.use('/api/district', districtRoutes);
 app.use('/api/employer', employerRoutes);
 app.use('/api/employer-staff', employerStaffRoutes);
+app.use('/api/geofence', geofenceRoutes);
+app.use('/api/schedules', scheduleRoutes);
 
 // 1. Public Test Route (from Chunk 1)
 app.get('/api', (req, res) => {

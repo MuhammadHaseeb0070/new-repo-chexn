@@ -10,14 +10,34 @@ function CheckIn({ onCreated }) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Mandatory geolocation helper
+  const getGeolocation = async () => {
+    return new Promise((resolve, reject) => {
+      if (!("geolocation" in navigator)) {
+        return reject(new Error('Geolocation is not supported by your browser.'));
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const coords = { lat: position.coords.latitude, lon: position.coords.longitude };
+          resolve(coords);
+        },
+        (error) => {
+          reject(error);
+        }
+      );
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
-    setIsSubmitting(true);
     try {
+      const location = await getGeolocation();
+      setIsSubmitting(true);
       await apiClient.post('/checkins', { 
         emojiCategory: selectedCategory, 
-        specificFeeling: selectedFeeling 
+        specificFeeling: selectedFeeling,
+        location
       });
       alert('Check-in successful!');
       setSelectedCategory('');
@@ -25,8 +45,10 @@ function CheckIn({ onCreated }) {
       setAvailableFeelings([]);
       if (onCreated) onCreated();
     } catch (error) {
-      alert('Failed to submit check-in');
-      console.error('Error submitting check-in:', error);
+      alert('Location is required. Please allow location access to submit your Chex-N.');
+      console.error(error);
+      setIsSubmitting(false);
+      return;
     } finally {
       setIsSubmitting(false);
     }
@@ -91,6 +113,7 @@ function CheckIn({ onCreated }) {
           </button>
         </div>
       </form>
+      <p className="text-xs text-gray-400 mt-2">Location status: {location ? 'Captured' : 'Getting location...'}</p>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import auth from '../firebaseClient.js';
+import { auth } from '../firebaseClient.js';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import PasswordReset from './PasswordReset.jsx';
 import Spinner from './Spinner.jsx';

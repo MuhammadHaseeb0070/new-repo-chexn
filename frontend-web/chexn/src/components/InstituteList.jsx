@@ -2,22 +2,22 @@ import { useState, useEffect } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
 
-function SchoolList() {
-  const [schools, setSchools] = useState([]);
+function InstituteList() {
+  const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
-    async function fetchSchools() {
+    async function fetchInstitutes() {
       try {
-        const res = await apiClient.get('/district/my-schools');
+        const res = await apiClient.get('/district/my-institutes');
         if (isMounted) {
-          setSchools(res.data || []);
+          setInstitutes(res.data || []);
         }
       } catch (err) {
-        console.error('Failed to load schools', err);
+        console.error('Failed to load institutes', err);
         if (isMounted) {
-          setSchools([]);
+          setInstitutes([]);
         }
       } finally {
         if (isMounted) {
@@ -25,23 +25,23 @@ function SchoolList() {
         }
       }
     }
-    fetchSchools();
+    fetchInstitutes();
     return () => { isMounted = false; };
   }, []);
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">My Schools</h3>
+      <h3 className="text-lg font-semibold text-gray-900">My Institutes</h3>
       {loading && <div className="mt-3"><Spinner label="Loading..." /></div>}
       {!loading && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {schools.map((school) => (
-            <div key={school.id} className="rounded-md border border-gray-200 p-3 text-gray-900">
-              {school.name}
+          {institutes.map((institute) => (
+            <div key={institute.id} className="rounded-md border border-gray-200 p-3 text-gray-900">
+              {institute.name}
             </div>
           ))}
-          {schools.length === 0 && (
-            <div className="text-gray-500 text-sm">No schools found.</div>
+          {institutes.length === 0 && (
+            <div className="text-gray-500 text-sm">No institutes found.</div>
           )}
         </div>
       )}
@@ -49,6 +49,6 @@ function SchoolList() {
   );
 }
 
-export default SchoolList;
+export default InstituteList;
 
 

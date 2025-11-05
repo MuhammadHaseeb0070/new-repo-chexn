@@ -3,22 +3,22 @@ const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 
-router.get('/my-schools', authMiddleware, async (req, res) => {
+router.get('/my-institutes', authMiddleware, async (req, res) => {
   try {
     const districtAdminId = req.user.uid;
     const query = db
       .collection('organizations')
       .where('parentDistrictId', '==', districtAdminId);
     const snapshot = await query.get();
-    const schools = snapshot.docs.map((doc) => ({ id: doc.id, name: doc.data().name }));
-    return res.status(200).json(schools);
+    const institutes = snapshot.docs.map((doc) => ({ id: doc.id, name: doc.data().name }));
+    return res.status(200).json(institutes);
   } catch (error) {
     console.error('Error fetching schools:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.post('/create-school', authMiddleware, async (req, res) => {
+router.post('/create-institute', authMiddleware, async (req, res) => {
   try {
     // Security Check: Verify the user is a district-admin
     const districtAdminRef = db.collection('users').doc(req.user.uid);
@@ -32,13 +32,14 @@ router.post('/create-school', authMiddleware, async (req, res) => {
     // Get the district's organizationId from adminDoc.data().organizationId
     const districtOrgId = adminDoc.data().organizationId;
     
-    // Get email, password, firstName, lastName from req.body
-    const { email, password, firstName, lastName, schoolName } = req.body;
+    // Get email, password, firstName, lastName, instituteName, instituteType from req.body
+    const { email, password, firstName, lastName, instituteName, instituteType } = req.body;
 
     // Create the School's own Organization: A school is its own entity
     const newOrgRef = db.collection('organizations').doc();
     await newOrgRef.set({
-      name: schoolName,
+      name: instituteName,
+      type: instituteType,
       parentDistrictId: adminDoc.id
     });
     const newSchoolOrgId = newOrgRef.id;

@@ -56,15 +56,15 @@ router.post('/:checkInId/message', authMiddleware, async (req, res) => {
     // Authorize the Sender
     let isAuthorized = false;
 
-    // Students can access their own check-ins
-    if (senderRole === 'student' && senderId === studentId) {
+    // Students/Employees can access their own check-ins
+    if ((senderRole === 'student' || senderRole === 'employee') && senderId === studentId) {
       isAuthorized = true;
     } else if (senderRole === 'parent') {
       const linkDoc = await db.collection('parentStudentLinks').doc(senderId).get();
       if (linkDoc.exists && linkDoc.data().studentUids.includes(studentId)) {
         isAuthorized = true;
       }
-    } else if (senderRole === 'teacher' || senderRole === 'counselor' || senderRole === 'school-admin') {
+    } else if (senderRole === 'teacher' || senderRole === 'counselor' || senderRole === 'school-admin' || senderRole === 'supervisor' || senderRole === 'hr') {
       const studentDoc = await db.collection('users').doc(studentId).get();
       if (studentDoc.exists && studentDoc.data().organizationId === senderOrgId) {
         isAuthorized = true;
@@ -135,15 +135,15 @@ router.get('/:checkInId', authMiddleware, async (req, res) => {
     // Authorize the Sender
     let isAuthorized = false;
 
-    // Students can access their own check-ins
-    if (senderRole === 'student' && userId === studentId) {
+    // Students/Employees can access their own check-ins
+    if ((senderRole === 'student' || senderRole === 'employee') && userId === studentId) {
       isAuthorized = true;
     } else if (senderRole === 'parent') {
       const linkDoc = await db.collection('parentStudentLinks').doc(userId).get();
       if (linkDoc.exists && linkDoc.data().studentUids.includes(studentId)) {
         isAuthorized = true;
       }
-    } else if (senderRole === 'teacher' || senderRole === 'counselor' || senderRole === 'school-admin') {
+    } else if (senderRole === 'teacher' || senderRole === 'counselor' || senderRole === 'school-admin' || senderRole === 'supervisor' || senderRole === 'hr') {
       const studentDoc = await db.collection('users').doc(studentId).get();
       if (studentDoc.exists && studentDoc.data().organizationId === senderOrgId) {
         isAuthorized = true;

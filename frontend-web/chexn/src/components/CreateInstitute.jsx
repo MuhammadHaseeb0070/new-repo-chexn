@@ -2,12 +2,13 @@ import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
 
-function CreateSchool({ onCreated }) {
+function CreateInstitute({ onCreated }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [schoolName, setSchoolName] = useState('');
+  const [instituteName, setInstituteName] = useState('');
+  const [instituteType, setInstituteType] = useState('elementary');
   const [message, setMessage] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -16,24 +17,25 @@ function CreateSchool({ onCreated }) {
     e.preventDefault();
     if (isSubmitting) return;
     setIsSubmitting(true);
-    setMessage('Creating school account...');
+    setMessage('Creating institute account...');
 
     try {
-      await apiClient.post('/district/create-school', {
+      await apiClient.post('/district/create-institute', {
         email,
         password,
         firstName,
         lastName,
-        schoolName
+        instituteName,
+        instituteType
       });
 
-      setMessage('School account created successfully!');
-      // Clear all form inputs
+      setMessage('Institute account created successfully!');
       setEmail('');
       setPassword('');
       setFirstName('');
       setLastName('');
-      setSchoolName('');
+      setInstituteName('');
+      setInstituteType('elementary');
       if (onCreated) onCreated();
     } catch (error) {
       setMessage(error.response?.data?.error || 'An error occurred.');
@@ -44,11 +46,20 @@ function CreateSchool({ onCreated }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">Create a New School Account</h3>
+      <h3 className="text-lg font-semibold text-gray-900">Add a New Institute</h3>
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1 md:col-span-2">
-          <label className="block text-sm text-gray-600">School Name</label>
-          <input type="text" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} required className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" />
+          <label className="block text-sm text-gray-600">Institute Name</label>
+          <input type="text" value={instituteName} onChange={(e) => setInstituteName(e.target.value)} required className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" />
+        </div>
+        <div className="space-y-1 md:col-span-2">
+          <label className="block text-sm text-gray-600">Institute Type</label>
+          <select value={instituteType} onChange={(e) => setInstituteType(e.target.value)} className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent">
+            <option value="elementary">Elementary School</option>
+            <option value="middle-school">Middle School</option>
+            <option value="high-school">High School</option>
+            <option value="college">College</option>
+          </select>
         </div>
         <div className="space-y-1 md:col-span-2">
           <label className="block text-sm text-gray-600">Admin Email</label>
@@ -68,7 +79,7 @@ function CreateSchool({ onCreated }) {
         </div>
         <div className="md:col-span-2">
           <button type="submit" disabled={isSubmitting} className="w-full rounded-md bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-            {isSubmitting ? (<><Spinner /> <span className="text-white text-sm">Creating...</span></>) : 'Create School'}
+            {isSubmitting ? (<><Spinner /> <span className="text-white text-sm">Creating...</span></>) : 'Add Institute'}
           </button>
         </div>
       </form>
@@ -77,5 +88,6 @@ function CreateSchool({ onCreated }) {
   );
 }
 
-export default CreateSchool;
+export default CreateInstitute;
+
 
