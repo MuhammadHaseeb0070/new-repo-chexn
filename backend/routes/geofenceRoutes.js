@@ -15,7 +15,8 @@ router.get('/:targetUserId', authMiddleware, async (req, res) => {
 
     const snapshot = await query.get();
     if (snapshot.empty) {
-      return res.status(404).json({ error: 'No geofence found for this user' });
+      // Return 200 with null instead of 404 - this is expected when no geofence exists yet
+      return res.status(200).json(null);
     }
 
     const doc = snapshot.docs[0];

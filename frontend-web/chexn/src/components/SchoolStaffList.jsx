@@ -31,18 +31,19 @@ function SchoolStaffList() {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">My Staff</h3>
-      {loading && <div className="mt-3"><Spinner label="Loading..." /></div>}
+      <h3 className="text-lg font-semibold text-gray-900">School Staff Members</h3>
+      {loading && <div className="mt-3"><Spinner label="Loading staff members..." /></div>}
       {!loading && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {staff.map((member) => (
             <div key={member.uid} className="rounded-md border border-gray-200 p-3 text-gray-900">
               <div className="font-medium">{member.firstName} {member.lastName}</div>
-              <div className="text-sm text-gray-500">{member.role}</div>
+              <div className="text-sm text-gray-500">{member.email}</div>
+              <div className="text-xs text-gray-400 mt-1">Role: {member.role}</div>
             </div>
           ))}
           {staff.length === 0 && (
-            <div className="text-gray-500 text-sm">No staff found.</div>
+            <div className="text-gray-500 text-sm col-span-full">No staff members found. Add staff using the form above.</div>
           )}
         </div>
       )}

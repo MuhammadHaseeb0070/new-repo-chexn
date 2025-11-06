@@ -35,6 +35,48 @@ router.get("/my-students", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /unread-summary - returns unread counts per child for this parent
+router.get('/unread-summary', authMiddleware, async (req, res) => {
+  try {
+    const parentId = req.user.uid;
+    const linkRef = db.collection('parentStudentLinks').doc(parentId);
+    const linkDoc = await linkRef.get();
+    if (!linkDoc.exists) return res.status(200).json([]);
+    const studentUids = linkDoc.data().studentUids || [];
+    if (!Array.isArray(studentUids) || studentUids.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Batch with 'in' queries (chunks of 10)
+    const chunkSize = 10;
+    const chunks = [];
+    for (let i = 0; i < studentUids.length; i += chunkSize) {
+      chunks.push(studentUids.slice(i, i + chunkSize));
+    }
+    // Limit to recent 50 check-ins per chunk (enough for unread count)
+    const allSnaps = await Promise.all(chunks.map(ids => db.collection('checkIns')
+      .where('studentId', 'in', ids)
+      .limit(50)
+      .get()
+    ));
+    const countMap = {};
+    allSnaps.forEach(snap => {
+      snap.forEach(doc => {
+        const data = doc.data() || {};
+        if (data.readStatus && data.readStatus.parent === false) {
+          const sid = data.studentId;
+          countMap[sid] = (countMap[sid] || 0) + 1;
+        }
+      });
+    });
+    const results = Object.keys(countMap).map(sid => ({ studentId: sid, unreadCount: countMap[sid] }));
+    return res.status(200).json(results);
+  } catch (error) {
+    console.error('Error fetching parent unread summary:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.post("/create-child", authMiddleware, async (req, res) => {
   try {
     // Security Check: Verify the user is a parent

@@ -70,7 +70,7 @@ function CheckIn({ onCreated }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h2 className="text-lg font-semibold text-gray-900">How are you feeling?</h2>
+      <h2 className="text-lg font-semibold text-gray-900">Submit New Check-in</h2>
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1">
           <label className="block text-sm text-gray-600">Category</label>
@@ -113,7 +113,7 @@ function CheckIn({ onCreated }) {
           </button>
         </div>
       </form>
-      <p className="text-xs text-gray-400 mt-2">Location status: {location ? 'Captured' : 'Getting location...'}</p>
+      <p className="text-xs text-gray-400 mt-2">Note: Your location will be captured automatically when you submit.</p>
     </div>
   );
 }

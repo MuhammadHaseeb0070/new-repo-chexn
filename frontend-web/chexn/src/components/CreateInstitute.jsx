@@ -67,7 +67,7 @@ function CreateInstitute({ onCreated }) {
         </div>
         <div className="space-y-1 md:col-span-2">
           <label className="block text-sm text-gray-600">Admin Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" />
         </div>
         <div className="space-y-1">
           <label className="block text-sm text-gray-600">Admin First Name</label>

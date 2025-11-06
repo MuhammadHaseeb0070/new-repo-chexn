@@ -29,17 +29,33 @@ function CommunicationThread({ checkInId }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSending || !newMessage.trim()) return;
+    const messageText = newMessage.trim();
     setIsSending(true);
+    
+    // Optimistic update: Add message immediately to UI
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage = {
+      id: tempId,
+      text: messageText,
+      senderName: 'You', // Will be replaced with actual name from server
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+    setNewMessage('');
+    
     try {
-      await apiClient.post(`/communications/${checkInId}/message`, {
-        text: newMessage
+      const response = await apiClient.post(`/communications/${checkInId}/message`, {
+        text: messageText
       });
-      // Clear the input
-      setNewMessage('');
-      // Refresh the messages
-      fetchMessages();
+      // Replace optimistic message with real one from server
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempId ? response.data : msg
+      ));
     } catch (error) {
       console.error('Error sending message:', error);
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(msg => msg.id !== tempId));
+      setNewMessage(messageText); // Restore message text
     } finally {
       setIsSending(false);
     }

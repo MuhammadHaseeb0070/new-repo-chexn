@@ -15,23 +15,24 @@ router.post('/:checkInId/message', authMiddleware, async (req, res) => {
     const { text } = req.body;
 
     // Security Check: Verify this senderId is authorized to see this checkInId
-    // Get Check-in and User Profiles
+    // Parallelize Firestore reads
     const checkInRef = db.collection('checkIns').doc(checkInId);
-    const checkInDoc = await checkInRef.get();
+    const senderRef = db.collection('users').doc(senderId);
+    
+    const [checkInDoc, senderDoc] = await Promise.all([
+      checkInRef.get(),
+      senderRef.get()
+    ]);
 
     if (!checkInDoc.exists) {
       return res.status(404).json({ error: 'Check-in not found.' });
     }
 
-    const studentId = checkInDoc.data().studentId;
-
-    const senderRef = db.collection('users').doc(senderId);
-    const senderDoc = await senderRef.get();
-    
     if (!senderDoc.exists) {
       return res.status(404).json({ error: 'User profile not found.' });
     }
-    
+
+    const studentId = checkInDoc.data().studentId;
     const senderData = senderDoc.data();
     // Use their full name if it exists, otherwise fall back to their email
     const senderName = senderData.firstName ? `${senderData.firstName} ${senderData.lastName}` : senderData.email;
@@ -65,9 +66,12 @@ router.post('/:checkInId/message', authMiddleware, async (req, res) => {
         isAuthorized = true;
       }
     } else if (senderRole === 'teacher' || senderRole === 'counselor' || senderRole === 'school-admin' || senderRole === 'supervisor' || senderRole === 'hr') {
-      const studentDoc = await db.collection('users').doc(studentId).get();
-      if (studentDoc.exists && studentDoc.data().organizationId === senderOrgId) {
-        isAuthorized = true;
+      // Only check if orgId exists and matches
+      if (senderOrgId) {
+        const studentDoc = await db.collection('users').doc(studentId).get();
+        if (studentDoc.exists && studentDoc.data().organizationId === senderOrgId) {
+          isAuthorized = true;
+        }
       }
     }
 
@@ -87,12 +91,11 @@ router.post('/:checkInId/message', authMiddleware, async (req, res) => {
     // We will store messages in a sub-collection
     const messageRef = db.collection('communications').doc(checkInId).collection('messages').doc();
     await messageRef.set(message);
-    // --- New Logic: Update the main Chex-N's readStatus ---
-    await checkInRef.update({
-      readStatus: newReadStatus
-    });
+    
+    // Fire-and-forget: Update readStatus (don't block response)
+    checkInRef.update({ readStatus: newReadStatus }).catch(() => {});
 
-    // Send a 201 (Created) response with the new message
+    // Send a 201 (Created) response with the new message immediately
     res.status(201).json({
       id: messageRef.id,
       ...message
@@ -111,24 +114,24 @@ router.get('/:checkInId', authMiddleware, async (req, res) => {
     // Get the checkInId from req.params
     const checkInId = req.params.checkInId;
 
-    // Security Check (Copy/Paste): Copy the entire authorization logic block from POST route
-    // Get Check-in and User Profiles
+    // Security Check: Parallelize Firestore reads
     const checkInRef = db.collection('checkIns').doc(checkInId);
-    const checkInDoc = await checkInRef.get();
+    const senderRef = db.collection('users').doc(userId);
+    
+    const [checkInDoc, senderDoc] = await Promise.all([
+      checkInRef.get(),
+      senderRef.get()
+    ]);
 
     if (!checkInDoc.exists) {
       return res.status(404).json({ error: 'Check-in not found.' });
     }
 
-    const studentId = checkInDoc.data().studentId;
-
-    const senderRef = db.collection('users').doc(userId);
-    const senderDoc = await senderRef.get();
-    
     if (!senderDoc.exists) {
       return res.status(404).json({ error: 'User profile not found.' });
     }
-    
+
+    const studentId = checkInDoc.data().studentId;
     const senderRole = senderDoc.data().role;
     const senderOrgId = senderDoc.data().organizationId;
 
@@ -144,9 +147,12 @@ router.get('/:checkInId', authMiddleware, async (req, res) => {
         isAuthorized = true;
       }
     } else if (senderRole === 'teacher' || senderRole === 'counselor' || senderRole === 'school-admin' || senderRole === 'supervisor' || senderRole === 'hr') {
-      const studentDoc = await db.collection('users').doc(studentId).get();
-      if (studentDoc.exists && studentDoc.data().organizationId === senderOrgId) {
-        isAuthorized = true;
+      // Only check if orgId exists and matches
+      if (senderOrgId) {
+        const studentDoc = await db.collection('users').doc(studentId).get();
+        if (studentDoc.exists && studentDoc.data().organizationId === senderOrgId) {
+          isAuthorized = true;
+        }
       }
     }
 
@@ -155,12 +161,22 @@ router.get('/:checkInId', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized.' });
     }
 
-    // If Authorized, Fetch Messages
-    const messagesRef = db.collection('communications').doc(checkInId).collection('messages').orderBy('timestamp', 'asc');
+    // If Authorized, Fetch Messages (limit to recent 50 for faster loading)
+    const messagesRef = db.collection('communications').doc(checkInId).collection('messages').orderBy('timestamp', 'asc').limit(50);
     const snapshot = await messagesRef.get();
 
     // If snapshot.empty, return an empty array
     if (snapshot.empty) {
+      // Fire-and-forget: Mark read (don't block response)
+      const updatedReadStatus = checkInDoc.data().readStatus || { student: false, parent: false, school: false };
+      if (senderRole === 'parent') {
+        updatedReadStatus.parent = true;
+      } else if (senderRole === 'student' || senderRole === 'employee') {
+        updatedReadStatus.student = true;
+      } else {
+        updatedReadStatus.school = true;
+      }
+      checkInRef.update({ readStatus: updatedReadStatus }).catch(() => {});
       return res.status(200).json([]);
     }
 
@@ -170,8 +186,8 @@ router.get('/:checkInId', authMiddleware, async (req, res) => {
       ...doc.data()
     }));
 
-    // --- New Logic: Mark read for the viewing user group ---
-    let updatedReadStatus = checkInDoc.data().readStatus || { student: false, parent: false, school: false };
+    // Fire-and-forget: Mark read (don't block response)
+    const updatedReadStatus = checkInDoc.data().readStatus || { student: false, parent: false, school: false };
     if (senderRole === 'parent') {
       updatedReadStatus.parent = true;
     } else if (senderRole === 'student' || senderRole === 'employee') {
@@ -179,9 +195,9 @@ router.get('/:checkInId', authMiddleware, async (req, res) => {
     } else {
       updatedReadStatus.school = true;
     }
-    await checkInRef.update({ readStatus: updatedReadStatus });
+    checkInRef.update({ readStatus: updatedReadStatus }).catch(() => {});
 
-    // Send the array of messages
+    // Send the array of messages immediately
     res.status(200).json(messages);
   } catch (error) {
     console.error('Error fetching messages:', error);

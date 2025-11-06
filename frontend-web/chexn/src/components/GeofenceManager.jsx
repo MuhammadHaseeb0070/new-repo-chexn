@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
 
@@ -11,6 +11,12 @@ function GeofenceManager({ targetUserId }) {
   const [lon, setLon] = useState('');
   const [radius, setRadius] = useState(1000);
 
+  // Leaflet map refs
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const circleRef = useRef(null);
+
   useEffect(() => {
     async function fetchGeofence() {
       setLoading(true);
@@ -18,14 +24,22 @@ function GeofenceManager({ targetUserId }) {
       try {
         const res = await apiClient.get(`/geofence/${targetUserId}`);
         const data = res.data;
-        // Firestore GeoPoint from API often serializes with _latitude/_longitude
-        const latVal = (data.location && (data.location._latitude ?? data.location.latitude)) ?? '';
-        const lonVal = (data.location && (data.location._longitude ?? data.location.longitude)) ?? '';
-        setLat(latVal);
-        setLon(lonVal);
-        setRadius(data.radius ?? 1000);
+        // If no geofence exists, data will be null
+        if (!data || !data.location) {
+          setLat('');
+          setLon('');
+          setRadius(1000);
+        } else {
+          // Firestore GeoPoint from API often serializes with _latitude/_longitude
+          const latVal = (data.location._latitude ?? data.location.latitude) ?? '';
+          const lonVal = (data.location._longitude ?? data.location.longitude) ?? '';
+          setLat(latVal);
+          setLon(lonVal);
+          setRadius(data.radius ?? 1000);
+        }
       } catch (error) {
-        // On 404 or errors, clear the form
+        // Only log unexpected errors
+        console.error('Error fetching geofence:', error);
         setLat('');
         setLon('');
         setRadius(1000);
@@ -42,6 +56,99 @@ function GeofenceManager({ targetUserId }) {
       setLoading(false);
     }
   }, [targetUserId]);
+
+  // Lazy-load Leaflet (no build-time dep) and initialize the map picker
+  useEffect(() => {
+    // Only init when form is not loading
+    if (loading) return;
+    // Require coordinates to init; default to a sensible view if empty
+    const initialLat = parseFloat(lat) || 37.7749; // SF fallback
+    const initialLon = parseFloat(lon) || -122.4194;
+
+    function ensureLeaflet() {
+      return new Promise((resolve) => {
+        if (window.L) return resolve(window.L);
+        // Inject CSS
+        if (!document.querySelector('link[data-leaflet]')) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+          link.crossOrigin = '';
+          link.setAttribute('data-leaflet', '1');
+          document.head.appendChild(link);
+        }
+        // Inject JS
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+        script.crossOrigin = '';
+        script.onload = () => resolve(window.L);
+        document.body.appendChild(script);
+      });
+    }
+
+    let destroyed = false;
+    ensureLeaflet().then((L) => {
+      if (destroyed) return;
+      // Initialize map only once
+      if (!mapRef.current && mapContainerRef.current) {
+        const map = L.map(mapContainerRef.current, { zoomControl: true }).setView([initialLat, initialLon], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        const marker = L.marker([initialLat, initialLon], { draggable: true }).addTo(map);
+        const circle = L.circle([initialLat, initialLon], { radius: Number(radius) || 1000 }).addTo(map);
+
+        marker.on('dragend', () => {
+          const pos = marker.getLatLng();
+          setLat(pos.lat.toFixed(6));
+          setLon(pos.lng.toFixed(6));
+          circle.setLatLng(pos);
+        });
+
+        map.on('click', (e) => {
+          const pos = e.latlng;
+          setLat(pos.lat.toFixed(6));
+          setLon(pos.lng.toFixed(6));
+          marker.setLatLng(pos);
+          circle.setLatLng(pos);
+        });
+
+        mapRef.current = map;
+        markerRef.current = marker;
+        circleRef.current = circle;
+      } else {
+        // Update existing map position/radius when state changes
+        if (markerRef.current && !Number.isNaN(parseFloat(lat)) && !Number.isNaN(parseFloat(lon))) {
+          const pos = { lat: parseFloat(lat), lng: parseFloat(lon) };
+          markerRef.current.setLatLng(pos);
+          circleRef.current && circleRef.current.setLatLng(pos);
+          mapRef.current && mapRef.current.setView(pos);
+        }
+        if (circleRef.current) {
+          circleRef.current.setRadius(Number(radius) || 1000);
+        }
+      }
+    });
+
+    return () => {
+      destroyed = true;
+    };
+  }, [loading, lat, lon, radius]);
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const { latitude, longitude } = pos.coords;
+      setLat(latitude.toFixed(6));
+      setLon(longitude.toFixed(6));
+      if (mapRef.current) mapRef.current.setView([latitude, longitude], 15);
+      if (markerRef.current) markerRef.current.setLatLng([latitude, longitude]);
+      if (circleRef.current) circleRef.current.setLatLng([latitude, longitude]);
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -96,6 +203,23 @@ function GeofenceManager({ targetUserId }) {
               min={1}
               className="w-full px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
             />
+            <input
+              type="range"
+              min={50}
+              max={5000}
+              step={10}
+              value={radius}
+              onChange={(e) => setRadius(e.target.value)}
+              className="mt-2 w-full"
+            />
+          </div>
+          <div className="md:col-span-3">
+            <div className="h-64 w-full rounded-md border border-gray-300 overflow-hidden" ref={mapContainerRef} />
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={useMyLocation} className="rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-1.5">
+                Use My Location
+              </button>
+            </div>
           </div>
           <div className="md:col-span-3">
             <button

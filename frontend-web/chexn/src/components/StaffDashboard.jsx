@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import apiClient from '../apiClient.js';
 import CommunicationThread from './CommunicationThread.jsx';
+import ThreadModal from './ThreadModal.jsx';
+import CollapsiblePanel from './CollapsiblePanel.jsx';
+import { formatCheckInDate } from '../utils/formatDate.js';
 import NotificationScheduler from './NotificationScheduler.jsx';
 import GeofenceManager from './GeofenceManager.jsx';
 import Spinner from './Spinner.jsx';
@@ -41,36 +44,49 @@ function StaffDashboard({ userType, refreshToken }) {
       .finally(() => setLoading(false));
   }, [currentConfig.list, userType, refreshToken]);
 
-  // Fetch unread summary for badges
+  // Lazy load unread summary (non-blocking, load after UI renders)
   useEffect(() => {
-    async function fetchUnread() {
+    let mounted = true;
+    const fetchUnread = async () => {
       try {
         const res = await apiClient.get(unreadSummaryEndpoint);
-        const map = {};
-        res.data.forEach(item => {
-          const key = item.studentId || item.employeeId;
-          if (key) map[key] = item.unreadCount;
-        });
-        setUnreadByUserId(map);
+        if (mounted) {
+          const map = {};
+          (res.data || []).forEach(item => {
+            const key = item.studentId || item.employeeId;
+            if (key) map[key] = item.unreadCount;
+          });
+          setUnreadByUserId(map);
+        }
       } catch (e) {
         // ignore
       }
-    }
-    fetchUnread();
+    };
+    const timer = setTimeout(fetchUnread, 300);
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
   }, [unreadSummaryEndpoint, refreshToken]);
 
   // 2. Fetch Chex-Ns when a user is selected
-  useEffect(() => {
-    if (!selectedUserId) {
+  const fetchCheckIns = useCallback(async (userId) => {
+    if (!userId) {
       setChildCheckIns([]);
       setSelectedCheckInId(null);
       return;
     }
+    try {
+      const res = await apiClient.get(`${currentConfig.checkins}/${userId}`);
+      setChildCheckIns(res.data);
+    } catch (err) {
+      console.error(`Error fetching ${userType} Chex-Ns:`, err);
+    }
+  }, [currentConfig.checkins, userType]);
 
-    apiClient.get(`${currentConfig.checkins}/${selectedUserId}`)
-      .then(res => setChildCheckIns(res.data))
-      .catch(err => console.error(`Error fetching ${userType} Chex-Ns:`, err));
-  }, [selectedUserId, currentConfig.checkins, userType]);
+  useEffect(() => {
+    fetchCheckIns(selectedUserId);
+  }, [selectedUserId, fetchCheckIns]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -114,69 +130,93 @@ function StaffDashboard({ userType, refreshToken }) {
                 {selectedUserId ? (
                   <>
                     <div className="mb-6">
-                      <GeofenceManager targetUserId={selectedUserId} />
+                      <CollapsiblePanel title="Geofence">
+                        <GeofenceManager targetUserId={selectedUserId} />
+                      </CollapsiblePanel>
                     </div>
                     <div className="mb-6">
-                      <NotificationScheduler targetUserId={selectedUserId} />
+                      <CollapsiblePanel title="Notifications">
+                        <NotificationScheduler targetUserId={selectedUserId} />
+                      </CollapsiblePanel>
                     </div>
                     <hr className="my-6" />
-                    <h3 className="text-lg font-semibold text-gray-900">{userTypeName} Chex-N History</h3>
-                    <div className="mt-4 space-y-3">
-                    {childCheckIns.length === 0 ? (
-                      <p className="text-gray-500 text-sm">No Chex-Ns found.</p>
-                    ) : (
-                      childCheckIns.map(checkIn => (
-                        <div key={checkIn.id} className="rounded-md border border-gray-200 p-3 md:p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="text-gray-900"><strong>{checkIn.emojiCategory}</strong>: {checkIn.specificFeeling}</div>
-                            {!checkIn.readStatus || checkIn.readStatus.school === false ? (
-                              <span className="ml-3 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-2 py-0.5">unread</span>
-                            ) : null}
+                    <h3 className="text-lg font-semibold text-gray-900">{userTypeName} Check-in History</h3>
+                    <CollapsiblePanel title={`Show ${userTypeName} Check-in History`} defaultOpen={true} onToggle={async (open) => {
+                      if (open && selectedUserId) {
+                        try {
+                          // Parallel: mark-read, fetch check-ins, and unread summary simultaneously
+                          const markReadEndpoint = userType === 'student' 
+                            ? `/staff/checkins/${selectedUserId}/mark-read`
+                            : `/employer-staff/checkins/${selectedUserId}/mark-read`;
+                          const [_, res, res2] = await Promise.all([
+                            apiClient.post(markReadEndpoint),
+                            apiClient.get(`${currentConfig.checkins}/${selectedUserId}`),
+                            apiClient.get(unreadSummaryEndpoint)
+                          ]);
+                          setChildCheckIns(res.data);
+                          const map2 = {};
+                          (res2.data || []).forEach(item => { 
+                            const key = item.studentId || item.employeeId; 
+                            if (key) map2[key] = item.unreadCount; 
+                          });
+                          setUnreadByUserId(map2);
+                        } catch (err) { /* no-op */ }
+                      }
+                    }}>
+                      <div className="mt-2 space-y-3">
+                      {childCheckIns.length === 0 ? (
+                        <p className="text-gray-500 text-sm">No check-ins available.</p>
+                      ) : (
+                        childCheckIns.map(checkIn => (
+                          <div key={checkIn.id} className="rounded-md border border-gray-200 p-3 md:p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="text-gray-900"><strong>{checkIn.emojiCategory}</strong>: {checkIn.specificFeeling}</div>
+                              {checkIn.readStatus?.school === false ? (
+                                <span className="ml-3 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-2 py-0.5">unread</span>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500">On: {formatCheckInDate(checkIn.timestamp)}</p>
+                            <div className="mt-3">
+                              <button
+                                onClick={() => setSelectedCheckInId(checkIn.id)}
+                                className="border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white rounded-md px-3 py-1.5 text-sm transition-colors duration-200"
+                              >
+                                Open Conversation
+                              </button>
+                            </div>
                           </div>
-                          <p className="mt-1 text-xs text-gray-500">On: {new Date(checkIn.timestamp.seconds * 1000).toLocaleString()}</p>
-                          <div className="mt-3">
-                            <button
-                              onClick={() => setSelectedCheckInId(checkIn.id)}
-                              className="border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white rounded-md px-3 py-1.5 text-sm transition-colors duration-200"
-                            >
-                              View Thread
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                    </div>
+                        ))
+                      )}
+                      </div>
+                    </CollapsiblePanel>
                   </>
                 ) : (
                   <p className="mt-4 text-gray-500">Select a {userTypeName.toLowerCase()} to see their history.</p>
                 )}
 
                 {selectedCheckInId && (
-                  <div className="mt-6">
-                    <CommunicationThread checkInId={selectedCheckInId} />
-                    <div className="mt-4">
-                      <button
-                        className="border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white rounded-md px-4 py-2 transition-colors duration-200"
-                        onClick={async () => {
-                          setSelectedCheckInId(null);
-                          if (selectedUserId) {
-                            try {
-                              const res = await apiClient.get(`${currentConfig.checkins}/${selectedUserId}`);
-                              setChildCheckIns(res.data);
-                            } catch {}
-                          }
-                          try {
-                            const res2 = await apiClient.get(unreadSummaryEndpoint);
-                            const map2 = {};
-                            res2.data.forEach(item => { const key = item.studentId || item.employeeId; if (key) map2[key] = item.unreadCount; });
-                            setUnreadByUserId(map2);
-                          } catch {}
-                        }}
-                      >
-                        Close Thread
-                      </button>
-                    </div>
-                  </div>
+                  <ThreadModal
+                    checkInId={selectedCheckInId}
+                    onClose={async () => {
+                      setSelectedCheckInId(null);
+                      if (selectedUserId) {
+                        try {
+                          // Parallel: fetch check-ins and unread summary simultaneously
+                          const [res, res2] = await Promise.all([
+                            apiClient.get(`${currentConfig.checkins}/${selectedUserId}`),
+                            apiClient.get(unreadSummaryEndpoint)
+                          ]);
+                          setChildCheckIns(res.data);
+                          const map2 = {};
+                          (res2.data || []).forEach(item => { 
+                            const key = item.studentId || item.employeeId; 
+                            if (key) map2[key] = item.unreadCount; 
+                          });
+                          setUnreadByUserId(map2);
+                        } catch {}
+                      }
+                    }}
+                  />
                 )}
               </div>
             </div>

@@ -69,10 +69,11 @@ router.delete('/:scheduleId', authMiddleware, async (req, res) => {
 router.post('/trigger', async (req, res) => {
   try {
     const now = new Date();
-    const currentHour = now.getUTCHours().toString().padStart(2, '0');
-    const currentMinute = now.getUTCMinutes().toString().padStart(2, '0');
+    // Use local time, not UTC (since frontend sends local time from HTML time input)
+    const currentHour = now.getHours().toString().padStart(2, '0');
+    const currentMinute = now.getMinutes().toString().padStart(2, '0');
     const currentTime = `${currentHour}:${currentMinute}`;
-    console.log('Schedule trigger at (UTC):', currentTime);
+    console.log('Schedule trigger at (local time):', currentTime);
 
     const query = db.collection('schedules').where('time', '==', currentTime);
     const snapshot = await query.get();

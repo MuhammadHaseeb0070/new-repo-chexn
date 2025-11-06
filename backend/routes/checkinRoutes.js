@@ -8,7 +8,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const studentId = req.user.uid;
 
-    const query = db.collection('checkIns').where('studentId', '==', studentId).orderBy('timestamp', 'desc');
+    const query = db.collection('checkIns').where('studentId', '==', studentId).orderBy('timestamp', 'desc').limit(50);
     const snapshot = await query.get();
 
     if (snapshot.empty) {
@@ -31,7 +31,7 @@ router.get('/', authMiddleware, async (req, res) => {
 router.get('/unread', authMiddleware, async (req, res) => {
   try {
     const studentId = req.user.uid;
-    const query = db.collection('checkIns').where('studentId', '==', studentId).orderBy('timestamp', 'desc');
+    const query = db.collection('checkIns').where('studentId', '==', studentId).orderBy('timestamp', 'desc').limit(50);
     const snapshot = await query.get();
 
     if (snapshot.empty) {
@@ -79,6 +79,40 @@ router.get('/student/:studentId', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error fetching student check-ins:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Mark all check-ins as read for a parent viewing a specific student
+router.post('/student/:studentId/mark-read', authMiddleware, async (req, res) => {
+  try {
+    const parentId = req.user.uid;
+    const studentId = req.params.studentId;
+
+    // Verify parent is linked to student
+    const linkRef = db.collection('parentStudentLinks').doc(parentId);
+    const linkDoc = await linkRef.get();
+    if (!linkDoc.exists || !linkDoc.data().studentUids.includes(studentId)) {
+      return res.status(403).json({ error: 'You are not authorized to modify these check-ins.' });
+    }
+
+    // Fetch all check-ins for the student
+    const q = db.collection('checkIns').where('studentId', '==', studentId);
+    const snap = await q.get();
+
+    const batch = db.batch();
+    snap.forEach(doc => {
+      const data = doc.data() || {};
+      const readStatus = data.readStatus || {};
+      if (readStatus.parent !== true) {
+        batch.update(doc.ref, { 'readStatus.parent': true });
+      }
+    });
+    await batch.commit();
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Error marking parent read:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -8,6 +8,7 @@ import apiClient from "./apiClient.js";
 import CheckIn from "./components/CheckIn.jsx";
 import CheckInHistory from "./components/CheckInHistory.jsx";
 import CreateChild from "./components/CreateChild.jsx";
+import CollapsiblePanel from "./components/CollapsiblePanel.jsx";
 import ParentDashboard from "./components/ParentDashboard.jsx";
 import CreateStaff from "./components/CreateStaff.jsx";
 import CreateStudent from "./components/CreateStudent.jsx";
@@ -32,6 +33,7 @@ function App() {
   const [studentsRefreshKey, setStudentsRefreshKey] = useState(0);
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState(0);
   const [selfCheckInsRefreshKey, setSelfCheckInsRefreshKey] = useState(0);
+  const [parentChildrenRefreshKey, setParentChildrenRefreshKey] = useState(0);
 
   const handleSignOut = async () => {
     try {
@@ -168,15 +170,19 @@ function App() {
             {/* --- Parent UI --- */}
             {userProfile.role === 'parent' && (
               <div className="space-y-4">
-                <CreateChild />
-                <ParentDashboard />
+                <CollapsiblePanel title="Add Child">
+                  <CreateChild onCreated={() => setParentChildrenRefreshKey(v => v + 1)} />
+                </CollapsiblePanel>
+                <ParentDashboard refreshToken={parentChildrenRefreshKey} />
               </div>
             )}
 
             {/* --- School Admin UI --- */}
             {userProfile.role === 'school-admin' && (
               <div className="space-y-4">
-                <CreateStaff onCreated={() => setSchoolStaffRefreshKey(v => v + 1)} />
+                <CollapsiblePanel title="Add Staff">
+                  <CreateStaff onCreated={() => setSchoolStaffRefreshKey(v => v + 1)} />
+                </CollapsiblePanel>
                 <SchoolStaffList key={schoolStaffRefreshKey} />
               </div>
             )}
@@ -184,7 +190,9 @@ function App() {
             {/* --- Teacher/Staff UI --- */}
             {(userProfile.role === 'teacher' || userProfile.role === 'counselor' || userProfile.role === 'social-worker') && (
               <div className="space-y-4">
-                <CreateStudent onCreated={() => setStudentsRefreshKey(v => v + 1)} />
+                <CollapsiblePanel title="Add Student">
+                  <CreateStudent onCreated={() => setStudentsRefreshKey(v => v + 1)} />
+                </CollapsiblePanel>
                 <StaffDashboard userType="student" refreshToken={studentsRefreshKey} />
               </div>
             )}
@@ -192,7 +200,9 @@ function App() {
             {/* --- District Admin UI --- */}
             {userProfile.role === 'district-admin' && (
               <div className="space-y-4">
-                <CreateInstitute onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
+                <CollapsiblePanel title="Create New Institute">
+                  <CreateInstitute onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
+                </CollapsiblePanel>
                 <InstituteList key={schoolsRefreshKey} />
               </div>
             )}
@@ -200,7 +210,9 @@ function App() {
             {/* --- Employer UI --- */}
             {userProfile.role === 'employer-admin' && (
               <div className="space-y-4">
-                <CreateEmployerStaff onCreated={() => setEmployerStaffRefreshKey(v => v + 1)} />
+                <CollapsiblePanel title="Add Staff">
+                  <CreateEmployerStaff onCreated={() => setEmployerStaffRefreshKey(v => v + 1)} />
+                </CollapsiblePanel>
                 <EmployerStaffList key={employerStaffRefreshKey} />
               </div>
             )}
@@ -208,7 +220,9 @@ function App() {
             {/* --- Employer Staff UI --- */}
             {(userProfile.role === 'supervisor' || userProfile.role === 'hr') && (
               <div className="space-y-4">
-                <CreateEmployee onCreated={() => setEmployeesRefreshKey(v => v + 1)} />
+                <CollapsiblePanel title="Add Employee">
+                  <CreateEmployee onCreated={() => setEmployeesRefreshKey(v => v + 1)} />
+                </CollapsiblePanel>
                 <StaffDashboard userType="employee" refreshToken={employeesRefreshKey} />
               </div>
             )}

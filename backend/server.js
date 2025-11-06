@@ -63,4 +63,65 @@ app.get('/api/test-secure', authMiddleware, (req, res) => {
 // --- Start the Server ---
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Set up cron job to check and send scheduled notifications every minute
+  const cron = require('node-cron');
+  const { db, admin } = require('./config/firebase');
+  
+  // Run every minute
+  cron.schedule('* * * * *', async () => {
+    try {
+      const now = new Date();
+      // Use local time, not UTC (since frontend sends local time from HTML time input)
+      const currentHour = now.getHours().toString().padStart(2, '0');
+      const currentMinute = now.getMinutes().toString().padStart(2, '0');
+      const currentTime = `${currentHour}:${currentMinute}`;
+      
+      const query = db.collection('schedules').where('time', '==', currentTime);
+      const snapshot = await query.get();
+      if (snapshot.empty) {
+        return; // No schedules to send
+      }
+      
+      console.log(`[Cron] Found ${snapshot.docs.length} schedule(s) to send at ${currentTime}`);
+      
+      let sentCount = 0;
+      for (const scheduleDoc of snapshot.docs) {
+        const schedule = scheduleDoc.data();
+        const targetUserId = schedule.targetUserId;
+        const message = schedule.message || 'It\'s time to Chex-N!';
+        
+        try {
+          const userDoc = await db.collection('users').doc(targetUserId).get();
+          if (!userDoc.exists) continue;
+          const fcmTokens = userDoc.data().fcmTokens || [];
+          if (!Array.isArray(fcmTokens) || fcmTokens.length === 0) {
+            console.log(`[Cron] No FCM tokens for user ${targetUserId}`);
+            continue;
+          }
+          
+          const payload = {
+            notification: {
+              title: 'Time to Chex-N!',
+              body: message,
+            },
+            tokens: fcmTokens,
+          };
+          await admin.messaging().sendEachForMulticast(payload);
+          sentCount++;
+          console.log(`[Cron] Sent notification to user ${targetUserId}`);
+        } catch (innerError) {
+          console.error(`[Cron] Error sending scheduled message for user ${targetUserId}:`, innerError.message);
+        }
+      }
+      
+      if (sentCount > 0) {
+        console.log(`[Cron] Successfully sent ${sentCount} notification(s)`);
+      }
+    } catch (error) {
+      console.error('[Cron] Error in notification cron job:', error.message);
+    }
+  });
+  
+  console.log('✅ Notification cron job started (runs every minute)');
 });

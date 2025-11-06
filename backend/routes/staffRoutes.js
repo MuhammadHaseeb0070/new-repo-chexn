@@ -40,22 +40,30 @@ router.get('/unread-summary', authMiddleware, async (req, res) => {
       return res.status(200).json([]);
     }
 
-    const results = [];
-    for (const doc of studentsSnap.docs) {
-      const studentId = doc.id;
-      const checkInsSnap = await db.collection('checkIns')
-        .where('studentId', '==', studentId)
-        .orderBy('timestamp', 'desc')
-        .get();
-      const unreadCount = checkInsSnap.docs
-        .map(d => d.data())
-        .filter(ci => ci.readStatus && ci.readStatus.school === false)
-        .length;
-      if (unreadCount > 0) {
-        results.push({ studentId, unreadCount });
-      }
+    // Optimize: batch fetch check-ins using 'in' queries (chunks of 10)
+    const studentIds = studentsSnap.docs.map(d => d.id);
+    const chunkSize = 10;
+    const chunks = [];
+    for (let i = 0; i < studentIds.length; i += chunkSize) {
+      chunks.push(studentIds.slice(i, i + chunkSize));
     }
-
+    // Limit to recent 50 check-ins per chunk (enough for unread count)
+    const allSnaps = await Promise.all(chunks.map(ids => db.collection('checkIns')
+      .where('studentId', 'in', ids)
+      .limit(50)
+      .get()
+    ));
+    const countMap = {};
+    allSnaps.forEach(snap => {
+      snap.forEach(doc => {
+        const data = doc.data() || {};
+        if (data.readStatus && data.readStatus.school === false) {
+          const sid = data.studentId;
+          countMap[sid] = (countMap[sid] || 0) + 1;
+        }
+      });
+    });
+    const results = Object.keys(countMap).map(sid => ({ studentId: sid, unreadCount: countMap[sid] }));
     return res.status(200).json(results);
   } catch (error) {
     console.error('Error fetching unread summary:', error);
@@ -96,7 +104,8 @@ router.get('/checkins/:studentId', authMiddleware, async (req, res) => {
     // If authorized, fetch check-ins
     const query = db.collection('checkIns')
       .where('studentId', '==', studentId)
-      .orderBy('timestamp', 'desc');
+      .orderBy('timestamp', 'desc')
+      .limit(50);
     
     const snapshot = await query.get();
 
@@ -111,6 +120,40 @@ router.get('/checkins/:studentId', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error fetching student check-ins:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Mark all check-ins as read for school staff viewing a specific student
+router.post('/checkins/:studentId/mark-read', authMiddleware, async (req, res) => {
+  try {
+    const staffId = req.user.uid;
+    const studentId = req.params.studentId;
+
+    const staffDoc = await db.collection('users').doc(staffId).get();
+    if (!staffDoc.exists) return res.status(403).json({ error: 'User profile not found.' });
+    const organizationId = staffDoc.data().organizationId;
+
+    const studentDoc = await db.collection('users').doc(studentId).get();
+    if (!studentDoc.exists) return res.status(404).json({ error: 'Student not found.' });
+    if (studentDoc.data().organizationId !== organizationId) {
+      return res.status(403).json({ error: 'You are not authorized to modify this student.' });
+    }
+
+    const q = db.collection('checkIns').where('studentId', '==', studentId);
+    const snap = await q.get();
+    const batch = db.batch();
+    snap.forEach(doc => {
+      const data = doc.data() || {};
+      const readStatus = data.readStatus || {};
+      if (readStatus.school !== true) {
+        batch.update(doc.ref, { 'readStatus.school': true });
+      }
+    });
+    await batch.commit();
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Error marking staff read:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

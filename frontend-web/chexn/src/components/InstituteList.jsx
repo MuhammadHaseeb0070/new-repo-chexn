@@ -31,17 +31,17 @@ function InstituteList() {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">My Institutes</h3>
-      {loading && <div className="mt-3"><Spinner label="Loading..." /></div>}
+      <h3 className="text-lg font-semibold text-gray-900">School Districts & Institutes</h3>
+      {loading && <div className="mt-3"><Spinner label="Loading institutes..." /></div>}
       {!loading && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {institutes.map((institute) => (
             <div key={institute.id} className="rounded-md border border-gray-200 p-3 text-gray-900">
-              {institute.name}
+              <div className="font-medium">{institute.name}</div>
             </div>
           ))}
           {institutes.length === 0 && (
-            <div className="text-gray-500 text-sm">No institutes found.</div>
+            <div className="text-gray-500 text-sm col-span-full">No institutes found. Create a new institute using the form above.</div>
           )}
         </div>
       )}
