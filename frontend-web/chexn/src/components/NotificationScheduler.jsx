@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function NotificationScheduler({ targetUserId }) {
   const [schedules, setSchedules] = useState([]);
@@ -61,7 +62,10 @@ function NotificationScheduler({ targetUserId }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">Timed Reminders</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold text-gray-900">Timed Reminders</h3>
+        <InfoTooltip description="Set recurring nudges to remind students or staff when it's time to submit a ChexN or follow a routine." />
+      </div>
 
       <form onSubmit={handleCreateSchedule} className="mt-4 flex flex-col sm:flex-row gap-3">
         <input

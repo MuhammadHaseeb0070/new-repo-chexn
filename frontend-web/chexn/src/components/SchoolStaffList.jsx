@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function SchoolStaffList() {
   const [staff, setStaff] = useState([]);
@@ -31,7 +32,10 @@ function SchoolStaffList() {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">School Staff Members</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold text-gray-900">School Staff Members</h3>
+        <InfoTooltip description="Review every staff account tied to your school, along with their contact details and assigned role." />
+      </div>
       {loading && <div className="mt-3"><Spinner label="Loading staff members..." /></div>}
       {!loading && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

@@ -3,6 +3,7 @@ import { auth } from '../firebaseClient.js';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import PasswordReset from './PasswordReset.jsx';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function Login() {
   const [email, setEmail] = useState('');
@@ -74,7 +75,10 @@ function Login() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md">
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 md:p-8">
-          <h1 className="text-2xl md:text-3xl font-semibold text-gray-900 text-center">Sign in to ChexN</h1>
+          <div className="flex items-center justify-center gap-2">
+            <h1 className="text-2xl md:text-3xl font-semibold text-gray-900 text-center">Sign in to ChexN</h1>
+            <InfoTooltip description="Access your ChexN workspace to submit check-ins, monitor teams, and receive real-time alerts." />
+          </div>
           <p className="mt-2 text-center text-sm text-gray-500">Use your email and password to continue</p>
 
           <form className="mt-6 space-y-5" noValidate>

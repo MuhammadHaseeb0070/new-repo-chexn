@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import { auth } from '../firebaseClient.js';
 import { sendPasswordResetEmail } from 'firebase/auth';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function PasswordReset() {
   const [email, setEmail] = useState('');
@@ -26,7 +27,10 @@ function PasswordReset() {
 
   return (
     <div>
-      <h3 className="text-xl font-semibold text-gray-900 text-center">Reset Password</h3>
+      <div className="flex items-center justify-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-900 text-center">Reset Password</h3>
+        <InfoTooltip description="We’ll email you a secure link so you can set a fresh password for your ChexN account." />
+      </div>
       <form onSubmit={handleSubmit} className="mt-4 space-y-3">
         <div className="space-y-1">
           <label className="block text-sm text-gray-600">Email</label>

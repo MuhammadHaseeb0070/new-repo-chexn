@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 import apiClient from '../apiClient.js';
 import { EMOTIONAL_CATEGORIES } from '../constants.js';
 
@@ -70,10 +71,16 @@ function CheckIn({ onCreated }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h2 className="text-lg font-semibold text-gray-900">Submit New Check-in</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-gray-900">Submit New Check-in</h2>
+        <InfoTooltip description="Share how you're feeling right now. We capture your location with each ChexN so caregivers can keep students safe." />
+      </div>
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1">
-          <label className="block text-sm text-gray-600">Category</label>
+          <div className="flex items-center gap-2">
+            <label className="block text-sm text-gray-600">Category</label>
+            <InfoTooltip description="Choose the emotion group that best matches how you feel (happy, anxious, calm, etc.)." position="right" />
+          </div>
           <select
             value={selectedCategory}
             onChange={handleCategoryChange}
@@ -88,7 +95,10 @@ function CheckIn({ onCreated }) {
           </select>
         </div>
         <div className="space-y-1">
-          <label className="block text-sm text-gray-600">Specific Feeling</label>
+          <div className="flex items-center gap-2">
+            <label className="block text-sm text-gray-600">Specific Feeling</label>
+            <InfoTooltip description="After picking a category, narrow it down with a specific feeling so mentors understand the exact mood." position="right" />
+          </div>
           <select
             value={selectedFeeling}
             onChange={(e) => setSelectedFeeling(e.target.value)}

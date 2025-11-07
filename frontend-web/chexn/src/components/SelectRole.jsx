@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function SelectRole() {
   const [selectedRole, setSelectedRole] = useState('parent');
@@ -34,7 +35,10 @@ function SelectRole() {
     <div className="min-h-screen bg-gray-50">
       <div className="w-full max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 md:p-8">
-          <h2 className="text-2xl md:text-3xl font-semibold text-gray-900 text-center">Complete Your Profile</h2>
+          <div className="flex items-center justify-center gap-2">
+            <h2 className="text-2xl md:text-3xl font-semibold text-gray-900 text-center">Complete Your Profile</h2>
+            <InfoTooltip description="Choose the role that fits you so ChexN can unlock the right dashboard and permissions." />
+          </div>
           <p className="mt-2 text-center text-gray-500">Tell us who you are to get the right dashboard.</p>
           <form onSubmit={handleSubmit} className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
@@ -58,25 +62,30 @@ function SelectRole() {
               />
             </div>
             <div className="md:col-span-2 space-y-1">
-              <label className="block text-sm text-gray-600">Select Role</label>
+              <div className="flex items-center gap-2">
+                <label className="block text-sm text-gray-600">Select Role</label>
+                <InfoTooltip description="Pick the account type so we know whether to show parent, education institute, district, or employer tools." position="right" />
+              </div>
               <select
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
                 className="w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
               >
                 <option value="parent">Parent</option>
-                <option value="school">K-12 School</option>
-                <option value="district">K-12 District</option>
+                <option value="school">Education Institute (K-12, College, etc.)</option>
+                <option value="district">District</option>
                 <option value="employer">Employer</option>
-                <option value="college">College</option>
               </select>
             </div>
             {selectedRole !== 'parent' && (
               <>
                 <div className="md:col-span-2 space-y-1">
-                  <label className="block text-sm text-gray-600">
-                    {selectedRole === 'school' ? 'School Name' : (selectedRole === 'district' ? 'District Name' : 'Company Name')}
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="block text-sm text-gray-600">
+                      {selectedRole === 'school' ? 'Institute Name' : (selectedRole === 'district' ? 'District Name' : 'Company Name')}
+                    </label>
+                    <InfoTooltip description="Tell us the official name so we can label dashboards and notifications correctly." position="right" />
+                  </div>
                   <input
                     type="text"
                     value={instituteName}
@@ -86,9 +95,12 @@ function SelectRole() {
                   />
                 </div>
                 <div className="md:col-span-2 space-y-1">
-                  <label className="block text-sm text-gray-600">
-                    {selectedRole === 'school' ? 'School Type (e.g., Elementary)' : (selectedRole === 'district' ? 'District Type (e.g., Public)' : 'Industry (e.g., Tech)')}
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="block text-sm text-gray-600">
+                      {selectedRole === 'school' ? 'Institute Type (e.g., Elementary, College)' : (selectedRole === 'district' ? 'District Type (e.g., Public, Charter)' : 'Industry (e.g., Tech)')}
+                    </label>
+                    <InfoTooltip description="Add a short descriptor so we can tailor templates and insights for this organization." position="right" />
+                  </div>
                   <input
                     type="text"
                     value={instituteType}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function GeofenceManager({ targetUserId }) {
   const [loading, setLoading] = useState(true);
@@ -167,7 +168,10 @@ function GeofenceManager({ targetUserId }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">Geofence Location</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold text-gray-900">Geofence Location</h3>
+        <InfoTooltip description="Tag a safe zone so you get notified whenever this member checks in outside the approved boundary." />
+      </div>
       {loading ? (
         <div className="mt-3"><Spinner label="Loading geofence..." /></div>
       ) : (
@@ -195,7 +199,10 @@ function GeofenceManager({ targetUserId }) {
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Radius (in meters)</label>
+            <div className="flex items-center gap-2">
+              <label className="block text-sm text-gray-600">Radius (in meters)</label>
+              <InfoTooltip description="Set how wide the safe zone should be. Larger numbers cover bigger areas like whole campuses." position="right" />
+            </div>
             <input
               type="number"
               value={radius}

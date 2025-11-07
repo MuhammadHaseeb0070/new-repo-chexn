@@ -26,6 +26,7 @@ import EmployerStaffList from "./components/EmployerStaffList.jsx";
 function App() {
   const [authUser, setAuthUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [isNewUser, setIsNewUser] = useState(false);
   const [loading, setLoading] = useState(true);
   const [schoolsRefreshKey, setSchoolsRefreshKey] = useState(0);
   const [schoolStaffRefreshKey, setSchoolStaffRefreshKey] = useState(0);
@@ -39,6 +40,7 @@ function App() {
     try {
       await signOut(auth);
       setUserProfile(null);
+      setIsNewUser(false);
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -80,13 +82,19 @@ function App() {
           .then(response => {
             // They have a profile, save it
             setUserProfile(response.data);
+            setIsNewUser(false);
             // Request push permission and register token
             requestNotificationPermission();
           })
           .catch(error => {
             // A 404 means they are new and need to pick a role
             if (error.response && error.response.status === 404) {
-              setUserProfile(null); 
+              setUserProfile(null);
+              setIsNewUser(true);
+            } else {
+              // Any other error: do NOT treat as new-user. Keep them on a safe fallback.
+              console.error('Failed to load profile:', error);
+              setIsNewUser(false);
             }
           })
           .finally(() => {
@@ -138,8 +146,8 @@ function App() {
         </div>
       )}
 
-      {/* 4. User is logged in, email IS verified, BUT profile is NOT created */}
-      {!loading && authUser && authUser.emailVerified && !userProfile && (
+      {/* 4. User is logged in, email IS verified, BUT profile is NOT created (explicit new user only) */}
+      {!loading && authUser && authUser.emailVerified && !userProfile && isNewUser && (
         <SelectRole />
       )}
 

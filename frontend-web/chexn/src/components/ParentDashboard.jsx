@@ -7,6 +7,7 @@ import { formatCheckInDate } from '../utils/formatDate.js';
 import NotificationScheduler from './NotificationScheduler.jsx';
 import GeofenceManager from './GeofenceManager.jsx';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function ParentDashboard({ refreshToken }) {
   const [myStudents, setMyStudents] = useState([]);
@@ -81,8 +82,11 @@ function ParentDashboard({ refreshToken }) {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl md:text-3xl font-semibold text-gray-900">Parent Dashboard</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl md:text-3xl font-semibold text-gray-900">Parent Dashboard</h2>
+            <InfoTooltip description="Keep tabs on each child’s mood check-ins, alerts, and location boundaries all from one place." />
+          </div>
         </div>
 
         {loading ? (
@@ -92,7 +96,10 @@ function ParentDashboard({ refreshToken }) {
             {/* Children list */}
             <div className="lg:col-span-4">
               <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-                <h3 className="text-lg font-semibold text-gray-900">Your Children</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-lg font-semibold text-gray-900">Your Children</h3>
+                  <InfoTooltip description="Select a child to view their history, set reminders, and manage location safety zones." />
+                </div>
                 <ul className="mt-4 space-y-2">
                   {myStudents.map(student => (
                     <li key={student.uid}>
@@ -122,11 +129,19 @@ function ParentDashboard({ refreshToken }) {
 
                 {selectedStudentId && (
                   <>
-                    <CollapsiblePanel title="Notifications" defaultOpen={false}>
+                    <CollapsiblePanel
+                      title="Notifications"
+                      defaultOpen={false}
+                      description="Schedule automatic reminders so this child never forgets to submit a ChexN."
+                    >
                       <NotificationScheduler targetUserId={selectedStudentId} />
                     </CollapsiblePanel>
                     <div className="mt-4">
-                      <CollapsiblePanel title="Geofence" defaultOpen={false}>
+                      <CollapsiblePanel
+                        title="Geofence"
+                        defaultOpen={false}
+                        description="Define safe areas and get alerts when the child checks in outside the boundary."
+                      >
                         <GeofenceManager targetUserId={selectedStudentId} />
                       </CollapsiblePanel>
                     </div>
@@ -134,11 +149,18 @@ function ParentDashboard({ refreshToken }) {
                 )}
 
                  <div className="mt-6">
-                   <h3 className="text-lg font-semibold text-gray-900">Check-in History</h3>
+                   <div className="flex items-center gap-2">
+                     <h3 className="text-lg font-semibold text-gray-900">Check-in History</h3>
+                     <InfoTooltip description="See this child’s recent moods and open any ChexN thread to follow up." />
+                   </div>
                    {!selectedStudentId ? (
                     <p className="mt-4 text-gray-500">Select a child to see their history.</p>
                   ) : (
-                     <CollapsiblePanel title="Show Check-in History" defaultOpen={false} onToggle={async (open) => {
+                     <CollapsiblePanel
+                       title="Show Check-in History"
+                       defaultOpen={false}
+                       description="Expand to browse each entry, unread status, and access conversations for this child."
+                       onToggle={async (open) => {
                        if (open && selectedStudentId) {
                          try {
                            // Parallel: mark-read and fetch check-ins simultaneously

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function CommunicationThread({ checkInId }) {
   const [messages, setMessages] = useState([]);
@@ -63,7 +64,10 @@ function CommunicationThread({ checkInId }) {
 
   return (
     <div className="rounded-xl border border-gray-200 p-4">
-      <h4 className="font-semibold text-gray-900">Conversation</h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="font-semibold text-gray-900">Conversation</h4>
+        <InfoTooltip description="Send quick updates to everyone connected to this ChexN. Messages appear instantly for parents, staff, and students." />
+      </div>
       {loading ? (
         <div className="mt-2"><Spinner label="Loading messages..." /></div>
       ) : (

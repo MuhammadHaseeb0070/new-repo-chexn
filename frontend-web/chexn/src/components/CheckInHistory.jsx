@@ -4,6 +4,7 @@ import ThreadModal from './ThreadModal.jsx';
 import CollapsiblePanel from './CollapsiblePanel.jsx';
 import { formatCheckInDate } from '../utils/formatDate.js';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function CheckInHistory({ refreshToken }) {
   const [checkIns, setCheckIns] = useState([]);
@@ -27,11 +28,18 @@ function CheckInHistory({ refreshToken }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h2 className="text-lg font-semibold text-gray-900">Your Check-in History</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-gray-900">Your Check-in History</h2>
+        <InfoTooltip description="Review past ChexNs and reopen message threads to continue the conversation." />
+      </div>
       {loading ? (
         <div className="mt-4"><Spinner label="Loading history..." /></div>
       ) : (
-        <CollapsiblePanel title="Show Check-in History" defaultOpen={true}>
+        <CollapsiblePanel
+          title="Show Check-in History"
+          defaultOpen={true}
+          description="Expand to see every mood entry you've shared, along with unread indicators and quick access to the thread."
+        >
           <div className="mt-2 space-y-3">
             {checkIns.map(checkIn => (
               <div key={checkIn.id} className="rounded-md border border-gray-200 p-3 md:p-4">

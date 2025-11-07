@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function InstituteList() {
   const [institutes, setInstitutes] = useState([]);
@@ -31,7 +32,10 @@ function InstituteList() {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">School Districts & Institutes</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold text-gray-900">School Districts & Institutes</h3>
+        <InfoTooltip description="Browse every district or institute connected to your account. Add new campuses using the form above." />
+      </div>
       {loading && <div className="mt-3"><Spinner label="Loading institutes..." /></div>}
       {!loading && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

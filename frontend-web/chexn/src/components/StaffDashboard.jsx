@@ -7,6 +7,7 @@ import { formatCheckInDate } from '../utils/formatDate.js';
 import NotificationScheduler from './NotificationScheduler.jsx';
 import GeofenceManager from './GeofenceManager.jsx';
 import Spinner from './Spinner.jsx';
+import InfoTooltip from './InfoTooltip.jsx';
 
 // This component is smart. It takes a 'userType' prop (either 'student' or 'employee')
 // and dynamically calls the correct API endpoints.
@@ -91,8 +92,11 @@ function StaffDashboard({ userType, refreshToken }) {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl md:text-3xl font-semibold text-gray-900">{userTypeName}s</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl md:text-3xl font-semibold text-gray-900">{userTypeName}s</h2>
+            <InfoTooltip description={`Monitor every ${userTypeName.toLowerCase()} assigned to you, review their moods, and manage safety settings.`} />
+          </div>
         </div>
 
         {loading && <div className="mt-6"><Spinner label="Loading..." /></div>}
@@ -101,7 +105,10 @@ function StaffDashboard({ userType, refreshToken }) {
             {/* User list */}
             <div className="lg:col-span-4">
               <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-                <h3 className="text-lg font-semibold text-gray-900">{userTypeName} List</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-lg font-semibold text-gray-900">{userTypeName} List</h3>
+                  <InfoTooltip description={`Select a ${userTypeName.toLowerCase()} to open their alerts, geofence, and recent ChexNs.`} />
+                </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {users.map((u) => (
                     <button
@@ -130,18 +137,31 @@ function StaffDashboard({ userType, refreshToken }) {
                 {selectedUserId ? (
                   <>
                     <div className="mb-6">
-                      <CollapsiblePanel title="Geofence">
+                      <CollapsiblePanel
+                        title="Geofence"
+                        description={`Set safe zones for this ${userTypeName.toLowerCase()} so you’re alerted when a check-in happens outside the boundary.`}
+                      >
                         <GeofenceManager targetUserId={selectedUserId} />
                       </CollapsiblePanel>
                     </div>
                     <div className="mb-6">
-                      <CollapsiblePanel title="Notifications">
+                      <CollapsiblePanel
+                        title="Notifications"
+                        description={`Schedule automated reminders to prompt this ${userTypeName.toLowerCase()} to submit regular ChexNs.`}
+                      >
                         <NotificationScheduler targetUserId={selectedUserId} />
                       </CollapsiblePanel>
                     </div>
                     <hr className="my-6" />
-                    <h3 className="text-lg font-semibold text-gray-900">{userTypeName} Check-in History</h3>
-                    <CollapsiblePanel title={`Show ${userTypeName} Check-in History`} defaultOpen={true} onToggle={async (open) => {
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-gray-900">{userTypeName} Check-in History</h3>
+                      <InfoTooltip description={`Browse every ChexN this ${userTypeName.toLowerCase()} has submitted and jump into the conversation.`} />
+                    </div>
+                    <CollapsiblePanel
+                      title={`Show ${userTypeName} Check-in History`}
+                      defaultOpen={true}
+                      description={`Expand to mark items as read, view mood details, and open the message thread for this ${userTypeName.toLowerCase()}.`}
+                      onToggle={async (open) => {
                       if (open && selectedUserId) {
                         try {
                           // Parallel: mark-read, fetch check-ins, and unread summary simultaneously

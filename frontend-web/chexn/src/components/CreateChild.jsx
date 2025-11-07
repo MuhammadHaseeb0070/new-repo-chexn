@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
+import InfoTooltip from './InfoTooltip.jsx';
 
 function CreateChild({ onCreated }) {
   const [email, setEmail] = useState('');
@@ -41,7 +42,10 @@ function CreateChild({ onCreated }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <h3 className="text-lg font-semibold text-gray-900">Create a Child Account</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold text-gray-900">Create a Child Account</h3>
+        <InfoTooltip description="Invite a child into ChexN so they can submit check-ins under your supervision." />
+      </div>
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1 md:col-span-2">
           <label className="block text-sm text-gray-600">Email</label>
