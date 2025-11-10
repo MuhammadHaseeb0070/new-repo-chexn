@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { auth } from "./firebaseClient.js";
-import { requestNotificationPermission } from "./firebaseMessaging.js";
+import { requestNotificationPermission, setupForegroundMessageHandler } from "./firebaseMessaging.js";
 import { onAuthStateChanged, signOut, sendEmailVerification } from "firebase/auth";
 import Login from "./components/login.jsx";
 import Spinner from "./components/Spinner.jsx";
@@ -55,6 +55,27 @@ function App() {
     }
   };
 
+  // Listen for messages from service worker (notification clicks when app is already open)
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'notificationClick' && event.data?.scheduleId) {
+        // Update URL to include scheduleId - CheckIn component will detect this via URL params
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set('scheduleId', event.data.scheduleId);
+        window.history.pushState({}, '', currentUrl.toString());
+        // Dispatch a custom event to trigger URL param re-check in CheckIn component
+        window.dispatchEvent(new CustomEvent('scheduleIdUpdated'));
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      };
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -85,11 +106,21 @@ function App() {
             setIsNewUser(false);
             // Request push permission and register token
             requestNotificationPermission();
+            // Setup foreground message handler for notifications
+            setupForegroundMessageHandler((scheduleId) => {
+              // Scroll to check-in form if it exists
+              setTimeout(() => {
+                const checkInElement = document.querySelector('[data-checkin-form]');
+                if (checkInElement) {
+                  checkInElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }, 100);
+            });
           })
           .catch(error => {
             // A 404 means they are new and need to pick a role
             if (error.response && error.response.status === 404) {
-              setUserProfile(null);
+              setUserProfile(null); 
               setIsNewUser(true);
             } else {
               // Any other error: do NOT treat as new-user. Keep them on a safe fallback.
@@ -156,8 +187,10 @@ function App() {
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <h2 className="text-xl md:text-2xl font-semibold text-gray-900">Welcome, {userProfile.email}</h2>
+        <div>
+              <h2 className="text-xl md:text-2xl font-semibold text-gray-900">
+                Welcome{userProfile.firstName ? `, ${userProfile.firstName}${userProfile.lastName ? ` ${userProfile.lastName}` : ''}` : userProfile.email ? `, ${userProfile.email.split('@')[0]}` : ''}
+              </h2>
               <p className="text-sm text-gray-500">Role: <span className="text-gray-900 font-medium">{userProfile.role}</span></p>
             </div>
             <div className="flex items-center gap-3">
@@ -167,73 +200,73 @@ function App() {
 
           {/* Content */}
           <div className="mt-6 space-y-6">
-            {/* --- Student UI --- */}
-            {(userProfile.role === 'student' || userProfile.role === 'employee') && (
+          {/* --- Student UI --- */}
+          {(userProfile.role === 'student' || userProfile.role === 'employee') && (
               <div className="space-y-4">
-                <CheckIn onCreated={() => setSelfCheckInsRefreshKey(v => v + 1)} />
-                <CheckInHistory refreshToken={selfCheckInsRefreshKey} />
-              </div>
-            )}
+              <CheckIn onCreated={() => setSelfCheckInsRefreshKey(v => v + 1)} />
+              <CheckInHistory refreshToken={selfCheckInsRefreshKey} />
+            </div>
+          )}
 
-            {/* --- Parent UI --- */}
-            {userProfile.role === 'parent' && (
+          {/* --- Parent UI --- */}
+          {userProfile.role === 'parent' && (
               <div className="space-y-4">
                 <CollapsiblePanel title="Add Child">
                   <CreateChild onCreated={() => setParentChildrenRefreshKey(v => v + 1)} />
                 </CollapsiblePanel>
                 <ParentDashboard refreshToken={parentChildrenRefreshKey} />
-              </div>
-            )}
+            </div>
+          )}
 
-            {/* --- School Admin UI --- */}
-            {userProfile.role === 'school-admin' && (
+          {/* --- School Admin UI --- */}
+          {userProfile.role === 'school-admin' && (
               <div className="space-y-4">
                 <CollapsiblePanel title="Add Staff">
-                  <CreateStaff onCreated={() => setSchoolStaffRefreshKey(v => v + 1)} />
+              <CreateStaff onCreated={() => setSchoolStaffRefreshKey(v => v + 1)} />
                 </CollapsiblePanel>
-                <SchoolStaffList key={schoolStaffRefreshKey} />
-              </div>
-            )}
+                <SchoolStaffList key={schoolStaffRefreshKey} refreshToken={schoolStaffRefreshKey} />
+            </div>
+          )}
 
-            {/* --- Teacher/Staff UI --- */}
-            {(userProfile.role === 'teacher' || userProfile.role === 'counselor' || userProfile.role === 'social-worker') && (
+          {/* --- Teacher/Staff UI --- */}
+          {(userProfile.role === 'teacher' || userProfile.role === 'counselor' || userProfile.role === 'social-worker') && (
               <div className="space-y-4">
                 <CollapsiblePanel title="Add Student">
-                  <CreateStudent onCreated={() => setStudentsRefreshKey(v => v + 1)} />
+              <CreateStudent onCreated={() => setStudentsRefreshKey(v => v + 1)} />
                 </CollapsiblePanel>
-                <StaffDashboard userType="student" refreshToken={studentsRefreshKey} />
-              </div>
-            )}
+              <StaffDashboard userType="student" refreshToken={studentsRefreshKey} />
+            </div>
+          )}
 
-            {/* --- District Admin UI --- */}
-            {userProfile.role === 'district-admin' && (
+          {/* --- District Admin UI --- */}
+          {userProfile.role === 'district-admin' && (
               <div className="space-y-4">
                 <CollapsiblePanel title="Create New Institute">
                   <CreateInstitute onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
                 </CollapsiblePanel>
                 <InstituteList key={schoolsRefreshKey} />
-              </div>
-            )}
+            </div>
+          )}
 
-            {/* --- Employer UI --- */}
-            {userProfile.role === 'employer-admin' && (
+          {/* --- Employer UI --- */}
+          {userProfile.role === 'employer-admin' && (
               <div className="space-y-4">
                 <CollapsiblePanel title="Add Staff">
-                  <CreateEmployerStaff onCreated={() => setEmployerStaffRefreshKey(v => v + 1)} />
+              <CreateEmployerStaff onCreated={() => setEmployerStaffRefreshKey(v => v + 1)} />
                 </CollapsiblePanel>
-                <EmployerStaffList key={employerStaffRefreshKey} />
-              </div>
-            )}
+                <EmployerStaffList key={employerStaffRefreshKey} refreshToken={employerStaffRefreshKey} />
+            </div>
+          )}
 
-            {/* --- Employer Staff UI --- */}
-            {(userProfile.role === 'supervisor' || userProfile.role === 'hr') && (
+          {/* --- Employer Staff UI --- */}
+          {(userProfile.role === 'supervisor' || userProfile.role === 'hr') && (
               <div className="space-y-4">
                 <CollapsiblePanel title="Add Employee">
-                  <CreateEmployee onCreated={() => setEmployeesRefreshKey(v => v + 1)} />
+              <CreateEmployee onCreated={() => setEmployeesRefreshKey(v => v + 1)} />
                 </CollapsiblePanel>
-                <StaffDashboard userType="employee" refreshToken={employeesRefreshKey} />
-              </div>
-            )}
+              <StaffDashboard userType="employee" refreshToken={employeesRefreshKey} />
+            </div>
+          )}
           </div>
         </div>
       )}

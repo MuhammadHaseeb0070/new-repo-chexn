@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
 import InfoTooltip from './InfoTooltip.jsx';
+import PackageSelection from './PackageSelection.jsx';
 
 function SelectRole() {
   const [selectedRole, setSelectedRole] = useState('parent');
@@ -10,6 +11,8 @@ function SelectRole() {
   const [instituteName, setInstituteName] = useState('');
   const [instituteType, setInstituteType] = useState('');
   const [message, setMessage] = useState('');
+  const [profileCreated, setProfileCreated] = useState(false);
+  const [createdRole, setCreatedRole] = useState(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -21,15 +24,21 @@ function SelectRole() {
 
     try {
       await apiClient.post('/users/create', { role: selectedRole, firstName, lastName, instituteName, instituteType });
-      // Our App.jsx listener will see the new profile and refresh the app
-      // We'll add a manual reload just to be sure
-      window.location.reload();
+      // Profile created, now show package selection for paying roles
+      setProfileCreated(true);
+      setCreatedRole(selectedRole);
+      // All roles need subscription (parent, school, district, employer)
+      // So we always show package selection
     } catch (error) {
       setMessage(error.response?.data?.error || 'An error occurred.');
-    } finally {
       setIsSubmitting(false);
     }
   };
+
+  // Show package selection after profile is created
+  if (profileCreated && createdRole) {
+    return <PackageSelection role={createdRole} />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

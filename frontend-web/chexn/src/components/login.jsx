@@ -78,82 +78,82 @@ function Login() {
           <div className="flex items-center justify-center gap-2">
             <h1 className="text-2xl md:text-3xl font-semibold text-gray-900 text-center">Sign in to ChexN</h1>
             <InfoTooltip description="Access your ChexN workspace to submit check-ins, monitor teams, and receive real-time alerts." />
-          </div>
+            </div>
           <p className="mt-2 text-center text-sm text-gray-500">Use your email and password to continue</p>
 
           <form className="mt-6 space-y-5" noValidate>
-            {error && (
+                  {error && (
               <div className="rounded-md border border-red-500/20 bg-red-50 text-red-600 px-4 py-3 text-sm">
-                {error}
-              </div>
-            )}
+                      {error}
+                    </div>
+                  )}
 
-            <div>
+                  <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                autoFocus
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                    </label>
+                    <input
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      autoFocus
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                required
+                      required
                 className="mt-2 w-full rounded-md border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
                 aria-invalid={!!error && (!email || !!error)}
-              />
-            </div>
+                    />
+                  </div>
 
-            <div>
+                  <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                      Password
+                    </label>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                required
+                      required
                 className="mt-2 w-full rounded-md border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
                 aria-invalid={!!error && (!password || !!error)}
-              />
-            </div>
+                    />
+                  </div>
 
-            <div className="space-y-3">
-            <button
-                type="button"
-                onClick={handleSignIn}
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={handleSignIn}
               disabled={signingIn}
               className="w-full rounded-md bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
+                    >
               {signingIn ? (<><Spinner /> <span className="text-white text-sm">Signing in...</span></>) : 'Sign In'}
-              </button>
-              <button
-                type="button"
-                onClick={handleSignUp}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSignUp}
               disabled={signingUp}
               className="w-full rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-3 font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
+                    >
               {signingUp ? (<><Spinner /> <span className="text-blue-600 group-hover:text-white text-sm">Signing up...</span></>) : 'Sign Up'}
-              </button>
-            </div>
+                    </button>
+                  </div>
 
             <div className="pt-2 text-center">
-              <button
-                type="button"
-                onClick={() => setShowReset(true)}
+                    <button
+                      type="button"
+                      onClick={() => setShowReset(true)}
                 className="text-sm font-medium text-blue-600 hover:text-blue-700"
-              >
+                    >
                 Forgot password?
-              </button>
-            </div>
-          </form>
+                    </button>
+                  </div>
+                </form>
         </div>
       </div>
     </div>

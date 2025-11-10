@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
 import InfoTooltip from './InfoTooltip.jsx';
+import BulkImport from './BulkImport.jsx';
 
 function CreateEmployee({ onCreated }) {
   const [email, setEmail] = useState('');
@@ -9,6 +10,7 @@ function CreateEmployee({ onCreated }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [message, setMessage] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -41,11 +43,31 @@ function CreateEmployee({ onCreated }) {
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold text-gray-900">Create Employee Account</h3>
-        <InfoTooltip description="Invite an employee into ChexN so you can track their well-being and communicate quickly." />
-      </div>
+    <div className="space-y-4">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Create Employee Account</h3>
+          <InfoTooltip description="Invite an employee into ChexN so you can track their well-being and communicate quickly." />
+        </div>
+        
+        <div className="mb-4">
+          <button
+            onClick={() => setShowImport(!showImport)}
+            className="w-full rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-2 font-medium transition-colors"
+          >
+            {showImport ? '← Single Entry' : '📥 Bulk Import Employees'}
+          </button>
+        </div>
+        
+        {showImport ? (
+          <BulkImport
+            endpoint="/employer-staff/bulk-create-employees"
+            onImportComplete={onCreated}
+            userType="employees"
+            maxUsers={100}
+          />
+        ) : (
+          <>
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1 md:col-span-2">
           <label className="block text-sm text-gray-600">Email</label>
@@ -70,6 +92,9 @@ function CreateEmployee({ onCreated }) {
         </div>
       </form>
       {message && <p className="mt-3 text-sm text-gray-500">{message}</p>}
+          </>
+        )}
+      </div>
     </div>
   );
 }

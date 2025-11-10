@@ -2,33 +2,27 @@ import { useState, useEffect } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
+import UserManagement from './UserManagement.jsx';
 
-function EmployerStaffList() {
+function EmployerStaffList({ refreshToken }) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function fetchStaff() {
-      try {
-        const res = await apiClient.get('/employer/my-staff');
-        if (isMounted) {
-          setStaff(res.data || []);
-        }
-      } catch (err) {
-        console.error('Failed to load employer staff', err);
-        if (isMounted) {
-          setStaff([]);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
+  const fetchStaff = async () => {
+    try {
+      const res = await apiClient.get('/employer/my-staff');
+      setStaff(res.data || []);
+    } catch (err) {
+      console.error('Failed to load employer staff', err);
+      setStaff([]);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     fetchStaff();
-    return () => { isMounted = false; };
-  }, []);
+  }, [refreshToken]);
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
@@ -41,9 +35,22 @@ function EmployerStaffList() {
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {staff.map((member) => (
             <div key={member.uid} className="rounded-md border border-gray-200 p-3 text-gray-900">
-              <div className="font-medium">{member.firstName} {member.lastName}</div>
-              <div className="text-sm text-gray-500">{member.email}</div>
-              <div className="text-xs text-gray-400 mt-1">Role: {member.role}</div>
+              <div className="flex items-start justify-between gap-2 min-w-0">
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="font-medium text-sm truncate">{member.firstName} {member.lastName}</div>
+                  <div className="text-xs text-gray-500 truncate mt-0.5">{member.email}</div>
+                  <div className="text-xs text-gray-400 mt-1 capitalize">Role: {member.role}</div>
+                </div>
+                <div className="shrink-0">
+                  <UserManagement
+                    userId={member.uid}
+                    endpointBase="/employer/staff"
+                    userType="staff"
+                    onUpdated={fetchStaff}
+                    onDeleted={fetchStaff}
+                  />
+                </div>
+              </div>
             </div>
           ))}
           {staff.length === 0 && (

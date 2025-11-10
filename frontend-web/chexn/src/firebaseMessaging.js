@@ -1,4 +1,4 @@
-import { getMessaging, getToken } from 'firebase/messaging';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { app } from './firebaseClient.js';
 import apiClient from './apiClient.js';
 
@@ -31,6 +31,36 @@ export async function requestNotificationPermission() {
   } catch (error) {
     console.error('Notification permission error:', error);
   }
+}
+
+// Listen for foreground messages and handle notification clicks
+export function setupForegroundMessageHandler(onNotificationClick) {
+  onMessage(messaging, (payload) => {
+    console.log('Foreground message received:', payload);
+    
+    // If this is a scheduled check-in notification, handle it
+    if (payload.data?.type === 'scheduled_checkin' && payload.data?.scheduleId) {
+      const scheduleId = payload.data.scheduleId;
+      
+      // Update URL to include scheduleId (this will trigger CheckIn component to load question)
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set('scheduleId', scheduleId);
+      window.history.pushState({}, '', currentUrl.toString());
+      
+      // Call the callback if provided (e.g., to scroll to check-in form)
+      if (onNotificationClick) {
+        onNotificationClick(scheduleId);
+      }
+      
+      // Show a browser notification (optional, since we're already in the app)
+      if (Notification.permission === 'granted') {
+        new Notification(payload.notification?.title || 'Time to Chex-N!', {
+          body: payload.notification?.body || '',
+          icon: '/vite.svg'
+        });
+      }
+    }
+  });
 }
 
 

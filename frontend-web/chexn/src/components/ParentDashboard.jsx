@@ -8,6 +8,9 @@ import NotificationScheduler from './NotificationScheduler.jsx';
 import GeofenceManager from './GeofenceManager.jsx';
 import Spinner from './Spinner.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
+import { getEmojiForCategory } from '../utils/emojiHelper.js';
+import { EMOTIONAL_CATEGORIES } from '../constants.js';
+import UserManagement from './UserManagement.jsx';
 
 function ParentDashboard({ refreshToken }) {
   const [myStudents, setMyStudents] = useState([]);
@@ -16,19 +19,20 @@ function ParentDashboard({ refreshToken }) {
   const [selectedCheckInId, setSelectedCheckInId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unreadByStudentId, setUnreadByStudentId] = useState({});
+  const [filterCategory, setFilterCategory] = useState('');
+
+  const fetchMyStudents = async () => {
+    try {
+      const response = await apiClient.get('/parents/my-students');
+      setMyStudents(response.data);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchMyStudents = async () => {
-      try {
-        const response = await apiClient.get('/parents/my-students');
-        setMyStudents(response.data);
-      } catch (error) {
-        console.error('Error fetching students:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchMyStudents();
   }, [refreshToken]);
 
@@ -79,6 +83,10 @@ function ParentDashboard({ refreshToken }) {
     fetchChildCheckIns(selectedStudentId);
   }, [selectedStudentId, fetchChildCheckIns]);
 
+  const filteredCheckIns = filterCategory
+    ? childCheckIns.filter(ci => ci.emojiCategory === filterCategory)
+    : childCheckIns;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -102,18 +110,38 @@ function ParentDashboard({ refreshToken }) {
                 </div>
                 <ul className="mt-4 space-y-2">
                   {myStudents.map(student => (
-                    <li key={student.uid}>
+                    <li key={student.uid} className="flex items-center gap-2">
                       <button
                         onClick={() => setSelectedStudentId(student.uid)}
-                        className={`w-full flex items-center justify-between rounded-md border px-4 py-2 text-left transition-colors duration-200 ${selectedStudentId === student.uid ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}
+                        className={`flex-1 flex items-center justify-between rounded-md border px-3 sm:px-4 py-2 text-left transition-colors duration-200 min-w-0 ${selectedStudentId === student.uid ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}
                       >
-                        <span className="text-gray-900 truncate">{student.email}</span>
+                        <span className="text-sm text-gray-900 truncate flex-1 min-w-0">
+                          {student.firstName} {student.lastName}
+                          <span className="text-xs text-gray-500 ml-1">({student.email})</span>
+                        </span>
                         {unreadByStudentId[student.uid] && (
-                          <span className="ml-3 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-2 py-0.5">
+                          <span className="ml-2 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-2 py-0.5 shrink-0">
                             {unreadByStudentId[student.uid]}
                           </span>
                         )}
                       </button>
+                      <UserManagement
+                        userId={student.uid}
+                        endpointBase="/parents/child"
+                        userType="child"
+                        onUpdated={() => {
+                          fetchMyStudents();
+                          if (selectedStudentId === student.uid) {
+                            setSelectedStudentId(null);
+                          }
+                        }}
+                        onDeleted={() => {
+                          fetchMyStudents();
+                          if (selectedStudentId === student.uid) {
+                            setSelectedStudentId(null);
+                          }
+                        }}
+                      />
                     </li>
                   ))}
                   {myStudents.length === 0 && (
@@ -151,11 +179,27 @@ function ParentDashboard({ refreshToken }) {
                  <div className="mt-6">
                    <div className="flex items-center gap-2">
                      <h3 className="text-lg font-semibold text-gray-900">Check-in History</h3>
-                     <InfoTooltip description="See this child’s recent moods and open any ChexN thread to follow up." />
+                     <InfoTooltip description="See this child's recent moods and open any ChexN thread to follow up." />
                    </div>
                    {!selectedStudentId ? (
                     <p className="mt-4 text-gray-500">Select a child to see their history.</p>
                   ) : (
+                    <>
+                      <div className="mt-4 flex items-center gap-3">
+                        <label className="text-sm text-gray-600">Filter by mood:</label>
+                        <select
+                          value={filterCategory}
+                          onChange={(e) => setFilterCategory(e.target.value)}
+                          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        >
+                          <option value="">All moods</option>
+                          {EMOTIONAL_CATEGORIES.map(cat => (
+                            <option key={cat.category} value={cat.category}>
+                              {cat.emoji} {cat.category}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                      <CollapsiblePanel
                        title="Show Check-in History"
                        defaultOpen={false}
@@ -174,10 +218,13 @@ function ParentDashboard({ refreshToken }) {
                        }
                      }}>
                       <div className="mt-2 space-y-3">
-                        {childCheckIns.map(checkIn => (
+                        {filteredCheckIns.map(checkIn => (
                           <div key={checkIn.id} className="rounded-md border border-gray-200 p-3 md:p-4">
                             <div className="flex items-center justify-between">
-                              <div className="text-gray-900"><strong>{checkIn.emojiCategory}</strong>: {checkIn.specificFeeling}</div>
+                              <div className="text-gray-900 flex items-center gap-2">
+                                <span className="text-xl">{getEmojiForCategory(checkIn.emojiCategory)}</span>
+                                <span><strong>{checkIn.emojiCategory}</strong>: {checkIn.specificFeeling}</span>
+                              </div>
                               {checkIn.readStatus?.parent === false ? (
                                 <span className="ml-3 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-2 py-0.5">unread</span>
                               ) : null}
@@ -193,11 +240,12 @@ function ParentDashboard({ refreshToken }) {
                             </div>
                           </div>
                         ))}
-                        {childCheckIns.length === 0 && (
+                        {filteredCheckIns.length === 0 && (
                           <div className="text-gray-500 text-sm">No check-ins available for this child.</div>
                         )}
                       </div>
                     </CollapsiblePanel>
+                    </>
                   )}
                 </div>
 

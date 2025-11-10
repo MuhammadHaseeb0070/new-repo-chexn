@@ -8,6 +8,9 @@ import NotificationScheduler from './NotificationScheduler.jsx';
 import GeofenceManager from './GeofenceManager.jsx';
 import Spinner from './Spinner.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
+import { getEmojiForCategory } from '../utils/emojiHelper.js';
+import { EMOTIONAL_CATEGORIES } from '../constants.js';
+import UserManagement from './UserManagement.jsx';
 
 // This component is smart. It takes a 'userType' prop (either 'student' or 'employee')
 // and dynamically calls the correct API endpoints.
@@ -18,6 +21,7 @@ function StaffDashboard({ userType, refreshToken }) {
   const [childCheckIns, setChildCheckIns] = useState([]);
   const [selectedCheckInId, setSelectedCheckInId] = useState(null);
   const [unreadByUserId, setUnreadByUserId] = useState({});
+  const [filterCategory, setFilterCategory] = useState('');
 
   // Define API endpoints based on the userType prop
   const apiConfig = {
@@ -37,13 +41,17 @@ function StaffDashboard({ userType, refreshToken }) {
   // Unread summary endpoint per userType
   const unreadSummaryEndpoint = userType === 'student' ? '/staff/unread-summary' : '/employer-staff/unread-summary';
 
-  // 1. Fetch the list of users (students/employees)
-  useEffect(() => {
+  const fetchUsers = useCallback(() => {
     apiClient.get(currentConfig.list)
       .then(res => setUsers(res.data))
       .catch(err => console.error(`Error fetching ${userType}s:`, err))
       .finally(() => setLoading(false));
-  }, [currentConfig.list, userType, refreshToken]);
+  }, [currentConfig.list, userType]);
+
+  // 1. Fetch the list of users (students/employees)
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers, refreshToken]);
 
   // Lazy load unread summary (non-blocking, load after UI renders)
   useEffect(() => {
@@ -89,6 +97,10 @@ function StaffDashboard({ userType, refreshToken }) {
     fetchCheckIns(selectedUserId);
   }, [selectedUserId, fetchCheckIns]);
 
+  const filteredCheckIns = filterCategory
+    ? childCheckIns.filter(ci => ci.emojiCategory === filterCategory)
+    : childCheckIns;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -109,20 +121,41 @@ function StaffDashboard({ userType, refreshToken }) {
                   <h3 className="text-lg font-semibold text-gray-900">{userTypeName} List</h3>
                   <InfoTooltip description={`Select a ${userTypeName.toLowerCase()} to open their alerts, geofence, and recent ChexNs.`} />
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 space-y-2">
                   {users.map((u) => (
-                    <button
-                      key={u.uid}
-                      onClick={() => setSelectedUserId(u.uid)}
-                      className={`rounded-md border px-3 py-1.5 text-sm transition-colors duration-200 ${selectedUserId === u.uid ? 'border-blue-600 bg-blue-50 text-gray-900' : 'border-gray-200 hover:bg-gray-50 text-gray-900'}`}
-                    >
-                      {(u.firstName || '')} {(u.lastName || '')} ({u.email})
-                      {unreadByUserId[u.uid] ? (
-                        <span className="ml-2 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-1.5 py-0.5">
-                          {unreadByUserId[u.uid]}
+                    <div key={u.uid} className="flex items-center gap-2 min-w-0">
+                      <button
+                        onClick={() => setSelectedUserId(u.uid)}
+                        className={`flex-1 rounded-md border px-3 py-1.5 text-sm text-left transition-colors duration-200 min-w-0 ${selectedUserId === u.uid ? 'border-blue-600 bg-blue-50 text-gray-900' : 'border-gray-200 hover:bg-gray-50 text-gray-900'}`}
+                      >
+                        <span className="truncate block min-w-0">
+                          {(u.firstName || '')} {(u.lastName || '')}
+                          <span className="text-xs text-gray-500 ml-1">({u.email})</span>
                         </span>
-                      ) : null}
-                    </button>
+                        {unreadByUserId[u.uid] && (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-1.5 py-0.5 shrink-0">
+                            {unreadByUserId[u.uid]}
+                          </span>
+                        )}
+                      </button>
+                      <UserManagement
+                        userId={u.uid}
+                        endpointBase={userType === 'student' ? '/staff/student' : '/employer-staff/employee'}
+                        userType={userType}
+                        onUpdated={() => {
+                          fetchUsers();
+                          if (selectedUserId === u.uid) {
+                            setSelectedUserId(null);
+                          }
+                        }}
+                        onDeleted={() => {
+                          fetchUsers();
+                          if (selectedUserId === u.uid) {
+                            setSelectedUserId(null);
+                          }
+                        }}
+                      />
+                    </div>
                   ))}
                   {users.length === 0 && (
                     <div className="text-gray-500 text-sm">No {userTypeName.toLowerCase()}s found.</div>
@@ -157,6 +190,21 @@ function StaffDashboard({ userType, refreshToken }) {
                       <h3 className="text-lg font-semibold text-gray-900">{userTypeName} Check-in History</h3>
                       <InfoTooltip description={`Browse every ChexN this ${userTypeName.toLowerCase()} has submitted and jump into the conversation.`} />
                     </div>
+                    <div className="mt-4 flex items-center gap-3">
+                      <label className="text-sm text-gray-600">Filter by mood:</label>
+                      <select
+                        value={filterCategory}
+                        onChange={(e) => setFilterCategory(e.target.value)}
+                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      >
+                        <option value="">All moods</option>
+                        {EMOTIONAL_CATEGORIES.map(cat => (
+                          <option key={cat.category} value={cat.category}>
+                            {cat.emoji} {cat.category}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <CollapsiblePanel
                       title={`Show ${userTypeName} Check-in History`}
                       defaultOpen={true}
@@ -184,13 +232,16 @@ function StaffDashboard({ userType, refreshToken }) {
                       }
                     }}>
                       <div className="mt-2 space-y-3">
-                      {childCheckIns.length === 0 ? (
+                      {filteredCheckIns.length === 0 ? (
                         <p className="text-gray-500 text-sm">No check-ins available.</p>
                       ) : (
-                        childCheckIns.map(checkIn => (
+                        filteredCheckIns.map(checkIn => (
                           <div key={checkIn.id} className="rounded-md border border-gray-200 p-3 md:p-4">
                             <div className="flex items-center justify-between">
-                              <div className="text-gray-900"><strong>{checkIn.emojiCategory}</strong>: {checkIn.specificFeeling}</div>
+                              <div className="text-gray-900 flex items-center gap-2">
+                                <span className="text-xl">{getEmojiForCategory(checkIn.emojiCategory)}</span>
+                                <span><strong>{checkIn.emojiCategory}</strong>: {checkIn.specificFeeling}</span>
+                              </div>
                               {checkIn.readStatus?.school === false ? (
                                 <span className="ml-3 inline-flex items-center rounded-full bg-blue-600 text-white text-xs px-2 py-0.5">unread</span>
                               ) : null}

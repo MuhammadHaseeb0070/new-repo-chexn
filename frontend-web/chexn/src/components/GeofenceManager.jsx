@@ -104,15 +104,17 @@ function GeofenceManager({ targetUserId }) {
 
         marker.on('dragend', () => {
           const pos = marker.getLatLng();
-          setLat(pos.lat.toFixed(6));
-          setLon(pos.lng.toFixed(6));
+          // Use 8 decimal places for precision (~1.1mm accuracy)
+          setLat(pos.lat.toFixed(8));
+          setLon(pos.lng.toFixed(8));
           circle.setLatLng(pos);
         });
 
         map.on('click', (e) => {
           const pos = e.latlng;
-          setLat(pos.lat.toFixed(6));
-          setLon(pos.lng.toFixed(6));
+          // Use 8 decimal places for precision (~1.1mm accuracy)
+          setLat(pos.lat.toFixed(8));
+          setLon(pos.lng.toFixed(8));
           marker.setLatLng(pos);
           circle.setLatLng(pos);
         });
@@ -140,15 +142,63 @@ function GeofenceManager({ targetUserId }) {
   }, [loading, lat, lon, radius]);
 
   const useMyLocation = () => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const { latitude, longitude } = pos.coords;
-      setLat(latitude.toFixed(6));
-      setLon(longitude.toFixed(6));
-      if (mapRef.current) mapRef.current.setView([latitude, longitude], 15);
-      if (markerRef.current) markerRef.current.setLatLng([latitude, longitude]);
-      if (circleRef.current) circleRef.current.setLatLng([latitude, longitude]);
-    });
+    if (!navigator.geolocation) {
+      setMessage('Geolocation is not supported by your browser.');
+      return;
+    }
+    
+    setMessage('Getting your location...');
+    
+    // Request high accuracy with timeout
+    const options = {
+      enableHighAccuracy: true, // Request GPS-level accuracy
+      timeout: 10000, // 10 second timeout
+      maximumAge: 0 // Don't use cached position
+    };
+    
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        // Use higher precision (8 decimal places = ~1.1mm precision)
+        setLat(latitude.toFixed(8));
+        setLon(longitude.toFixed(8));
+        
+        console.log(`Location obtained: ${latitude}, ${longitude} (accuracy: ${accuracy}m)`);
+        
+        if (mapRef.current) {
+          mapRef.current.setView([latitude, longitude], 18); // Zoom closer for precision
+        }
+        if (markerRef.current) {
+          markerRef.current.setLatLng([latitude, longitude]);
+        }
+        if (circleRef.current) {
+          circleRef.current.setLatLng([latitude, longitude]);
+        }
+        
+        setMessage(`Location set! Accuracy: ${Math.round(accuracy)}m`);
+        setTimeout(() => setMessage(''), 3000);
+      },
+      (error) => {
+        let errorMsg = 'Failed to get location. ';
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            errorMsg += 'Please allow location access.';
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMsg += 'Location information unavailable.';
+            break;
+          case error.TIMEOUT:
+            errorMsg += 'Location request timed out. Please try again.';
+            break;
+          default:
+            errorMsg += 'Unknown error occurred.';
+            break;
+        }
+        setMessage(errorMsg);
+        console.error('Geolocation error:', error);
+      },
+      options
+    );
   };
 
   const handleSubmit = async (e) => {
@@ -180,23 +230,27 @@ function GeofenceManager({ targetUserId }) {
             <label className="block text-sm text-gray-600">Latitude</label>
             <input
               type="number"
-              step="any"
+              step="0.00000001"
               value={lat}
               onChange={(e) => setLat(e.target.value)}
               required
+              placeholder="e.g., 37.7749"
               className="w-full px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
             />
+            <p className="mt-1 text-xs text-gray-500">Click map or use "Use My Location"</p>
           </div>
           <div>
             <label className="block text-sm text-gray-600">Longitude</label>
             <input
               type="number"
-              step="any"
+              step="0.00000001"
               value={lon}
               onChange={(e) => setLon(e.target.value)}
               required
+              placeholder="e.g., -122.4194"
               className="w-full px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
             />
+            <p className="mt-1 text-xs text-gray-500">Click map or use "Use My Location"</p>
           </div>
           <div>
             <div className="flex items-center gap-2">

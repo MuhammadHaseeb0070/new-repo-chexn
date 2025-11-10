@@ -31,6 +31,23 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
+// Get a single schedule by ID
+router.get('/by-id/:scheduleId', authMiddleware, async (req, res) => {
+  try {
+    const { scheduleId } = req.params;
+
+    const scheduleDoc = await db.collection('schedules').doc(scheduleId).get();
+    if (!scheduleDoc.exists) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+
+    return res.status(200).json({ id: scheduleDoc.id, ...scheduleDoc.data() });
+  } catch (error) {
+    console.error('Error fetching schedule:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get schedules for a target user
 router.get('/:targetUserId', authMiddleware, async (req, res) => {
   try {
@@ -87,7 +104,8 @@ router.post('/trigger', async (req, res) => {
     for (const scheduleDoc of snapshot.docs) {
       const schedule = scheduleDoc.data();
       const targetUserId = schedule.targetUserId;
-      const message = schedule.message || 'It’s time to Chex-N!';
+      const message = schedule.message || `It's time to Chex-N!`;
+      const scheduleId = scheduleDoc.id;
 
       try {
         const userDoc = await db.collection('users').doc(targetUserId).get();
@@ -99,6 +117,11 @@ router.post('/trigger', async (req, res) => {
           notification: {
             title: 'Time to Chex-N!',
             body: message,
+          },
+          data: {
+            scheduleId: scheduleId,
+            question: message,
+            type: 'scheduled_checkin'
           },
           tokens: fcmTokens,
         };

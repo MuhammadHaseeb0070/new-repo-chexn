@@ -15,15 +15,55 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// Optional: handle background messages
+// Handle background messages
 messaging.onBackgroundMessage((payload) => {
-  // Customize notification here if desired
   const notificationTitle = payload.notification?.title || 'New notification';
+  const notificationBody = payload.notification?.body || '';
+  const scheduleId = payload.data?.scheduleId;
+  
   const notificationOptions = {
-    body: payload.notification?.body || '',
-    icon: '/vite.svg'
+    body: notificationBody,
+    icon: '/vite.svg',
+    data: {
+      scheduleId: scheduleId,
+      url: scheduleId ? `/?scheduleId=${scheduleId}` : '/'
+    }
   };
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  
+  return self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// Handle notification clicks
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  const scheduleId = event.notification.data?.scheduleId;
+  let url = '/';
+  
+  if (scheduleId) {
+    url = `/?scheduleId=${scheduleId}`;
+  }
+  
+  // Open or focus the app
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Check if there's already a window open
+      for (let i = 0; i < clientList.length; i++) {
+        const client = clientList[i];
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          // Focus existing window and send message to update URL
+          client.focus();
+          // Post message to update URL (app will handle this)
+          client.postMessage({ type: 'notificationClick', scheduleId: scheduleId });
+          return;
+        }
+      }
+      // Open new window if none exists
+      if (clients.openWindow) {
+        return clients.openWindow(url);
+      }
+    })
+  );
 });
 
 

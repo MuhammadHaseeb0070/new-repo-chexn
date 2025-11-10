@@ -116,10 +116,82 @@ router.post('/student/:studentId/mark-read', authMiddleware, async (req, res) =>
   }
 });
 
+// Helper function to get emoji for category
+function getEmojiForCategory(category) {
+  const emojiMap = {
+    'Happy': '😊',
+    'Sad': '😠',
+    'Afraid': '😨',
+    'Angry': '😡',
+    'Unwell': '🤒',
+    'Surprised': '😲',
+    'Disgusted': '🤢',
+    'Hurt': '😭',
+    'Tired': '😴',
+    'Abused': '🤬'
+  };
+  return emojiMap[category] || '';
+}
+
+// Helper function to notify creator when check-in responds to a schedule
+async function notifyCreatorOfResponse(db, admin, scheduleId, emojiCategory, specificFeeling) {
+  try {
+    // Fetch the schedule to get creatorId and question
+    const scheduleDoc = await db.collection('schedules').doc(scheduleId).get();
+    if (!scheduleDoc.exists) {
+      console.log(`Schedule ${scheduleId} not found, skipping creator notification`);
+      return;
+    }
+
+    const schedule = scheduleDoc.data();
+    const creatorId = schedule.creatorId;
+    const question = schedule.message || 'ChexN Question';
+
+    if (!creatorId) {
+      console.log('No creatorId in schedule, skipping notification');
+      return;
+    }
+
+    // Get emoji for the category
+    const emoji = getEmojiForCategory(emojiCategory);
+    
+    // Fetch creator's FCM tokens
+    const creatorDoc = await db.collection('users').doc(creatorId).get();
+    if (!creatorDoc.exists) {
+      console.log(`Creator ${creatorId} not found, skipping notification`);
+      return;
+    }
+
+    const fcmTokens = creatorDoc.data().fcmTokens || [];
+    if (!Array.isArray(fcmTokens) || fcmTokens.length === 0) {
+      console.log(`No FCM tokens for creator ${creatorId}`);
+      return;
+    }
+
+    // Create notification message
+    const responseMessage = `${question} Response: ${emoji} ${emojiCategory}`;
+
+    // Send notification to creator
+    const payload = {
+      notification: {
+        title: 'ChexN Response',
+        body: responseMessage,
+      },
+      tokens: fcmTokens,
+    };
+
+    await admin.messaging().sendEachForMulticast(payload);
+    console.log(`Sent response notification to creator ${creatorId}: ${responseMessage}`);
+  } catch (error) {
+    console.error('Error notifying creator of response:', error);
+    // Don't throw error - this is fire-and-forget, shouldn't break check-in creation
+  }
+}
+
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const studentId = req.user.uid;
-    const { emojiCategory, specificFeeling, location } = req.body;
+    const { emojiCategory, specificFeeling, location, scheduleId } = req.body;
 
     if (!emojiCategory || !specificFeeling) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -137,6 +209,11 @@ router.post('/', authMiddleware, async (req, res) => {
       }
     };
 
+    // Add scheduleId if provided (optional field for backward compatibility)
+    if (scheduleId) {
+      newCheckIn.scheduleId = scheduleId;
+    }
+
     if (location && location.lat && location.lon) {
       newCheckIn.location = new admin.firestore.GeoPoint(location.lat, location.lon);
     }
@@ -145,6 +222,15 @@ router.post('/', authMiddleware, async (req, res) => {
 
     // Fire-and-forget geofence alert (do not await)
     try { checkGeofenceAlert(db, admin, newCheckIn); } catch (_) {}
+
+    // If scheduleId exists, notify the creator (fire-and-forget)
+    if (scheduleId) {
+      try {
+        notifyCreatorOfResponse(db, admin, scheduleId, emojiCategory, specificFeeling);
+      } catch (error) {
+        console.error('Error in notifyCreatorOfResponse (non-blocking):', error);
+      }
+    }
 
     res.status(201).json({ id: docRef.id, ...newCheckIn });
   } catch (error) {

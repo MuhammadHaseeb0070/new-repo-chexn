@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
 import InfoTooltip from './InfoTooltip.jsx';
+import BulkImport from './BulkImport.jsx';
 
 function CreateEmployerStaff({ onCreated }) {
   const [email, setEmail] = useState('');
@@ -10,6 +11,7 @@ function CreateEmployerStaff({ onCreated }) {
   const [lastName, setLastName] = useState('');
   const [role, setRole] = useState('supervisor');
   const [message, setMessage] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -44,11 +46,37 @@ function CreateEmployerStaff({ onCreated }) {
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold text-gray-900">Create Staff Account</h3>
-        <InfoTooltip description="Add supervisors or HR leaders so they can support employees and monitor ChexNs." />
-      </div>
+    <div className="space-y-4">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Create Staff Account</h3>
+          <InfoTooltip description="Add supervisors or HR leaders so they can support employees and monitor ChexNs." />
+        </div>
+        
+        <div className="mb-4">
+          <button
+            onClick={() => setShowImport(!showImport)}
+            className="w-full rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-2 font-medium transition-colors"
+          >
+            {showImport ? '← Single Entry' : '📥 Bulk Import Staff'}
+          </button>
+        </div>
+        
+        {showImport ? (
+          <BulkImport
+            endpoint="/employer/bulk-create-staff"
+            onImportComplete={onCreated}
+            userType="staff"
+            maxUsers={100}
+            showRoleField={true}
+            defaultRole="supervisor"
+            roleOptions={[
+              { value: 'supervisor', label: 'Supervisor' },
+              { value: 'hr', label: 'HR' }
+            ]}
+          />
+        ) : (
+          <>
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1 md:col-span-2">
           <label className="block text-sm text-gray-600">Email</label>
@@ -80,6 +108,9 @@ function CreateEmployerStaff({ onCreated }) {
         </div>
       </form>
       {message && <p className="mt-3 text-sm text-gray-500">{message}</p>}
+          </>
+        )}
+      </div>
     </div>
   );
 }

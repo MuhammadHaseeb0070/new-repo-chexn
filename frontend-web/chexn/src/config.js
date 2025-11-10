@@ -8,4 +8,4 @@ export const firebaseConfig = {
   measurementId: "G-7DT1E0KS4F",
 };
 
-export const API_URL = "http://54.160.148.146:5000/api";
+export const API_URL = "http://localhost:5000/api";

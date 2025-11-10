@@ -26,11 +26,20 @@ async function checkGeofenceAlert(db, admin, newCheckIn) {
     // 3) Haversine distance in meters between two GeoPoints
     const getDistance = (loc1, loc2) => {
       const toRad = (v) => (v * Math.PI) / 180;
-      const R = 6371000; // meters
-      const lat1 = loc1.latitude;
-      const lon1 = loc1.longitude;
-      const lat2 = loc2.latitude;
-      const lon2 = loc2.longitude;
+      const R = 6371000; // Earth radius in meters
+      
+      // Handle both Firestore GeoPoint format and plain object format
+      const lat1 = loc1.latitude || loc1._latitude || loc1.lat;
+      const lon1 = loc1.longitude || loc1._longitude || loc1.lon;
+      const lat2 = loc2.latitude || loc2._latitude || loc2.lat;
+      const lon2 = loc2.longitude || loc2._longitude || loc2.lon;
+      
+      if (typeof lat1 !== 'number' || typeof lon1 !== 'number' || 
+          typeof lat2 !== 'number' || typeof lon2 !== 'number') {
+        console.error('Invalid coordinates:', { loc1, loc2 });
+        return Infinity; // Return large distance if invalid
+      }
+      
       const dLat = toRad(lat2 - lat1);
       const dLon = toRad(lon2 - lon1);
       const a =
@@ -38,11 +47,21 @@ async function checkGeofenceAlert(db, admin, newCheckIn) {
         Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
         Math.sin(dLon / 2) * Math.sin(dLon / 2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
+      const distance = R * c;
+      
+      return distance;
     };
 
     const distance = getDistance(chexNLocation, geofenceLocation);
-    if (distance <= radiusInMeters) return; // inside fence, no alert
+    
+    // Add a small buffer (5% or 10m, whichever is larger) to account for GPS inaccuracy
+    // This prevents false alerts when user is at the edge of the geofence
+    const buffer = Math.max(radiusInMeters * 0.05, 10);
+    const effectiveRadius = radiusInMeters + buffer;
+    
+    console.log(`Geofence check: distance=${distance.toFixed(2)}m, radius=${radiusInMeters}m, effectiveRadius=${effectiveRadius.toFixed(2)}m, inside=${distance <= effectiveRadius}`);
+    
+    if (distance <= effectiveRadius) return; // inside fence (with buffer), no alert
 
     console.log(`ALERT: User ${studentId} is OUTSIDE the geofence!`);
 

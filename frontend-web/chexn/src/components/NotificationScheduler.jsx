@@ -63,30 +63,41 @@ function NotificationScheduler({ targetUserId }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold text-gray-900">Timed Reminders</h3>
-        <InfoTooltip description="Set recurring nudges to remind students or staff when it's time to submit a ChexN or follow a routine." />
+        <h3 className="text-lg font-semibold text-gray-900">Scheduled ChexN Questions</h3>
+        <InfoTooltip description="Set custom questions that will be sent at specific times. When the notification arrives, the question will be displayed and the response will be sent back to you with an emoji." />
       </div>
 
-      <form onSubmit={handleCreateSchedule} className="mt-4 flex flex-col sm:flex-row gap-3">
-        <input
-          type="time"
-          value={newTime}
-          onChange={(e) => setNewTime(e.target.value)}
-          required
-          className="rounded-md border border-gray-300 px-3 py-2"
-        />
-        <input
-          type="text"
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Reminder message"
-          required
-          className="flex-1 rounded-md border border-gray-300 px-3 py-2"
-        />
+      <form onSubmit={handleCreateSchedule} className="mt-4 space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <label className="block text-sm text-gray-600 mb-1">Time</label>
+            <input
+              type="time"
+              value={newTime}
+              onChange={(e) => setNewTime(e.target.value)}
+              required
+              className="w-full rounded-md border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div className="flex-[2]">
+            <div className="flex items-center gap-2 mb-1">
+              <label className="block text-sm text-gray-600">ChexN Question</label>
+              <InfoTooltip description="This question will be shown when the notification is sent. Example: 'How are you feeling this morning?'" position="right" />
+            </div>
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="e.g., How are you feeling this morning?"
+              required
+              className="w-full rounded-md border border-gray-300 px-3 py-2"
+            />
+          </div>
+        </div>
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-2 disabled:opacity-60"
+          className="w-full sm:w-auto rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-2 disabled:opacity-60"
         >
           {isSubmitting ? (<span className="inline-flex items-center gap-2"><Spinner /> Adding...</span>) : 'Add Schedule'}
         </button>
@@ -101,7 +112,7 @@ function NotificationScheduler({ targetUserId }) {
               <li key={s.id} className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2">
                 <div className="text-gray-900">
                   <span className="font-medium">{s.time}</span>
-                  <span className="ml-2 text-gray-600">{s.message}</span>
+                  <span className="ml-2 text-gray-600">— {s.message}</span>
                 </div>
                 <button
                   onClick={() => handleDeleteSchedule(s.id)}
