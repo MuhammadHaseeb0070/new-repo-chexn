@@ -10,6 +10,7 @@ function CreateStudent({ onCreated }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [message, setMessage] = useState('');
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -19,6 +20,7 @@ function CreateStudent({ onCreated }) {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setMessage('Creating account...');
+    setShowUpgrade(false);
 
     try {
       await apiClient.post('/staff/create-student', {
@@ -36,9 +38,26 @@ function CreateStudent({ onCreated }) {
       setLastName('');
       if (onCreated) onCreated();
     } catch (error) {
-      setMessage(error.response?.data?.error || 'An error occurred.');
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'An error occurred.';
+      setMessage(errorMessage);
+      setShowUpgrade(Boolean(error.response?.data?.canUpgrade));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    try {
+      setMessage('Opening subscription portal...');
+      const res = await apiClient.post('/subscriptions/create-portal-session');
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        throw new Error('Portal URL not received');
+      }
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to open subscription portal.';
+      setMessage(errorMessage);
     }
   };
 
@@ -91,7 +110,20 @@ function CreateStudent({ onCreated }) {
           </button>
         </div>
       </form>
-      {message && <p className="mt-3 text-sm text-gray-500">{message}</p>}
+      {message && (
+        <div className="mt-3 space-y-2">
+          <p className="text-sm text-gray-500">{message}</p>
+          {showUpgrade && (
+            <button
+              type="button"
+              onClick={handleManageSubscription}
+              className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 underline"
+            >
+              Manage Subscription
+            </button>
+          )}
+        </div>
+      )}
           </>
         )}
       </div>

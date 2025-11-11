@@ -3,6 +3,8 @@ const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
+const { checkResourceLimit } = require('../middleware/subscriptionMiddleware');
+const { updateUsage, refreshUsage, checkLimit } = require('../utils/usageTracker');
 
 router.get('/my-employees', authMiddleware, async (req, res) => {
   try {
@@ -112,12 +114,13 @@ router.get('/checkins/:employeeId', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/create-employee', authMiddleware, async (req, res) => {
+router.post('/create-employee', authMiddleware, checkResourceLimit('employee'), async (req, res) => {
   try {
     // Security Check: Verify the user is a staff member (supervisor/hr)
     const staffRef = db.collection('users').doc(req.user.uid);
     const staffDoc = await staffRef.get();
-    const staffRole = staffDoc.data()?.role;
+    const staffData = staffDoc.data() || {};
+    const staffRole = staffData.role;
     const creatorId = req.user.uid;
 
     if (!staffDoc.exists || (staffRole !== 'supervisor' && staffRole !== 'hr')) {
@@ -126,7 +129,7 @@ router.post('/create-employee', authMiddleware, async (req, res) => {
 
     // Get Data
     // Get the organizationId from staffDoc.data().organizationId
-    const organizationId = staffDoc.data().organizationId;
+    const organizationId = staffData.organizationId;
     
     // Get email, password, firstName, lastName, phoneNumber from req.body
     const { email, password, firstName, lastName, phoneNumber } = req.body;
@@ -168,6 +171,16 @@ router.post('/create-employee', authMiddleware, async (req, res) => {
     });
 
     // Send a 201 (Created) response with the new employee's data
+    const adminId = staffData.creatorId;
+    const staffName = [staffData.firstName, staffData.lastName].filter(Boolean).join(' ') || staffData.email || 'Staff';
+    try {
+      if (adminId) {
+        await updateUsage(adminId, `employee:${creatorId}`, 1, { staffName });
+      }
+    } catch (usageError) {
+      console.error('Error updating usage for employee creation:', usageError);
+    }
+
     res.status(201).json({
       uid: newEmployeeUser.uid,
       email,
@@ -196,14 +209,16 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
     // Security Check: Verify the user is a staff member (supervisor/hr)
     const staffRef = db.collection('users').doc(req.user.uid);
     const staffDoc = await staffRef.get();
-    const staffRole = staffDoc.data()?.role;
+    const staffData = staffDoc.data() || {};
+    const staffRole = staffData.role;
     const creatorId = req.user.uid;
 
     if (!staffDoc.exists || (staffRole !== 'supervisor' && staffRole !== 'hr')) {
       return res.status(403).json({ error: 'You are not authorized for this action.' });
     }
 
-    const organizationId = staffDoc.data().organizationId;
+    const organizationId = staffData.organizationId;
+    const adminId = staffData.creatorId;
     const { users, options = {} } = req.body;
 
     if (!Array.isArray(users) || users.length === 0) {
@@ -223,6 +238,20 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
 
     if (generateEmails && !emailDomain) {
       return res.status(400).json({ error: 'emailDomain is required when generateEmails is true' });
+    }
+
+    if (adminId) {
+      const limitCheck = await checkLimit(req.user.uid, 'employee', users.length);
+      if (!limitCheck.allowed) {
+        return res.status(403).json({
+          error: 'Limit exceeded',
+          message: limitCheck.reason || 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+          current: limitCheck.current,
+          limit: limitCheck.limit,
+          requested: limitCheck.requested || users.length,
+          canUpgrade: true,
+        });
+      }
     }
 
     const results = {
@@ -252,6 +281,19 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
 
     const generatedEmails = new Set();
     const emailCounts = new Map();
+
+    if (adminId) {
+      const limitCheck = await checkLimit(req.user.uid, 'employee', users.length);
+      if (!limitCheck.allowed) {
+        return res.status(403).json({
+          error: 'Limit exceeded',
+          message: limitCheck.reason || 'You have reached your plan limit.',
+          current: limitCheck.current,
+          limit: limitCheck.limit,
+          requested: limitCheck.requested || users.length,
+        });
+      }
+    }
 
     // Process users
     for (let i = 0; i < users.length; i++) {
@@ -410,6 +452,14 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
         });
         results.skipped++;
         console.error(`Error creating employee at row ${i + 1}:`, error);
+      }
+    }
+
+    if (results.created > 0 && adminId) {
+      try {
+        await refreshUsage(adminId);
+      } catch (usageError) {
+        console.error('Error refreshing usage after bulk employee import:', usageError);
       }
     }
 
@@ -578,6 +628,19 @@ router.delete('/employee/:employeeId', authMiddleware, async (req, res) => {
     });
     await batch.commit();
     
+    try {
+      const staffDoc = await db.collection('users').doc(staffId).get();
+      const staffData = staffDoc.data() || {};
+      const adminId = staffData.creatorId;
+      const staffName = [staffData.firstName, staffData.lastName].filter(Boolean).join(' ') || staffData.email || 'Staff';
+      if (adminId) {
+        await updateUsage(adminId, `employee:${staffId}`, -1, { staffName });
+        await refreshUsage(adminId);
+      }
+    } catch (usageError) {
+      console.error('Error updating usage after employee deletion:', usageError);
+    }
+
     res.status(200).json({ success: true, message: 'Employee deleted successfully' });
   } catch (error) {
     console.error('Error deleting employee:', error);

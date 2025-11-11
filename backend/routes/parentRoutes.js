@@ -3,7 +3,7 @@ const router = express.Router();
 const { admin, db } = require("../config/firebase");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireSubscription, checkResourceLimit } = require("../middleware/subscriptionMiddleware");
-const { updateUsage } = require("../utils/usageTracker");
+const { updateUsage, checkLimit, refreshUsage } = require("../utils/usageTracker");
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require("../utils/userHelpers");
 
 // GET /my-students - list children linked to the logged-in parent
@@ -91,6 +91,7 @@ router.post("/create-child", authMiddleware, requireSubscription, checkResourceL
     }
 
     const parentId = parentDoc.id;
+    const linkRef = db.collection("parentStudentLinks").doc(parentId);
 
     // Get Data: Get email, password, firstName, lastName, phoneNumber from req.body
     const { email, password, firstName, lastName, phoneNumber } = req.body;
@@ -166,7 +167,7 @@ router.post("/create-child", authMiddleware, requireSubscription, checkResourceL
 });
 
 // POST /bulk-create-children - Bulk import children
-router.post("/bulk-create-children", authMiddleware, async (req, res) => {
+router.post("/bulk-create-children", authMiddleware, requireSubscription, async (req, res) => {
   try {
     // Security Check: Verify the user is a parent
     const parentRef = db.collection("users").doc(req.user.uid);
@@ -187,13 +188,17 @@ router.post("/bulk-create-children", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Maximum 100 users per import" });
     }
 
-    // Check current child count
-    const linkRef = db.collection("parentStudentLinks").doc(parentId);
-    const linkDoc = await linkRef.get();
-    const currentCount = linkDoc.exists && linkDoc.data().studentUids ? linkDoc.data().studentUids.length : 0;
-    
-    if (currentCount + users.length > 10) {
-      return res.status(400).json({ error: `Maximum of 10 children allowed per parent. You currently have ${currentCount} children.` });
+    // Enforce plan limit
+    const limitCheck = await checkLimit(parentId, 'child', users.length);
+    if (!limitCheck.allowed) {
+      return res.status(403).json({
+        error: 'Limit exceeded',
+        message: limitCheck.reason || 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+        current: limitCheck.current,
+        limit: limitCheck.limit,
+        requested: limitCheck.requested || users.length,
+        canUpgrade: true,
+      });
     }
 
     const {
@@ -333,25 +338,23 @@ router.post("/bulk-create-children", authMiddleware, async (req, res) => {
           emailVerified: true
         });
 
-        const userDoc = {
+        const childData = {
           uid: newChildUser.uid,
           email,
           firstName,
           lastName,
-          role: "student"
+          role: 'student',
+          creatorId: parentId,
+          createdAt: new Date()
         };
 
         if (normalizedPhone) {
-          userDoc.phoneNumber = normalizedPhone;
+          childData.phoneNumber = normalizedPhone;
         }
 
-        // Add creatorId for management
-        userDoc.creatorId = parentId;
-        
-        await db.collection("users").doc(newChildUser.uid).set(userDoc);
-        
-        // Store password for creator to view later
-        await db.collection("userCredentials").doc(newChildUser.uid).set({
+        await db.collection('users').doc(newChildUser.uid).set(childData);
+
+        await db.collection('userCredentials').doc(newChildUser.uid).set({
           uid: newChildUser.uid,
           creatorId: parentId,
           email,
@@ -359,11 +362,9 @@ router.post("/bulk-create-children", authMiddleware, async (req, res) => {
           createdAt: new Date()
         });
 
-        // Link child to parent
-        await linkRef.set(
-          { studentUids: admin.firestore.FieldValue.arrayUnion(newChildUser.uid) },
-          { merge: true }
-        );
+        await db.collection('parentStudentLinks').doc(parentId).set({
+          studentUids: admin.firestore.FieldValue.arrayUnion(newChildUser.uid)
+        }, { merge: true });
 
         results.created++;
         results.createdUsers.push({
@@ -371,40 +372,39 @@ router.post("/bulk-create-children", authMiddleware, async (req, res) => {
           email,
           firstName,
           lastName,
-          phoneNumber: normalizedPhone,
           password: generatePasswords ? password : undefined
         });
 
-        await new Promise(resolve => setTimeout(resolve, 100));
+        try {
+          await updateUsage(parentId, 'child', 1);
+        } catch (usageError) {
+          console.error('Error updating usage for child creation:', usageError);
+        }
 
       } catch (error) {
         const errorEmail = users[i].email || "N/A";
-        let errorMessage = "Unknown error";
-        
-        if (error.code === "auth/email-already-exists") {
-          errorMessage = "Email already exists";
-        } else if (error.code === "auth/invalid-email") {
-          errorMessage = "Invalid email format";
-        } else if (error.code === "auth/weak-password") {
-          errorMessage = "Password is too weak";
-        } else {
-          errorMessage = error.message || "Failed to create user";
+        let errorMessage = 'Failed to create user';
+        if (error.code === 'auth/email-already-exists') {
+          errorMessage = 'Email already exists';
+          if (skipDuplicates) {
+            results.skipped++;
+            continue;
+          }
+        } else if (error.code === 'auth/invalid-email') {
+          errorMessage = 'Invalid email format';
+        } else if (error.message) {
+          errorMessage = error.message;
         }
 
-        results.errors.push({
-          row: i + 1,
-          email: errorEmail,
-          error: errorMessage
-        });
+        results.errors.push({ row: i + 1, email: errorEmail, error: errorMessage });
         results.skipped++;
-        console.error(`Error creating child at row ${i + 1}:`, error);
       }
     }
 
     res.status(200).json(results);
   } catch (error) {
-    console.error("Error in bulk create children:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('Error in bulk create children:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -597,6 +597,8 @@ router.delete('/child/:childId', authMiddleware, async (req, res) => {
     // Update usage tracking
     try {
       await updateUsage(parentId, 'child', -1);
+      // Ensure recalculation in case of any drift
+      await refreshUsage(parentId);
     } catch (usageError) {
       console.error('Error updating usage:', usageError);
       // Don't fail the request if usage update fails

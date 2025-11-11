@@ -3,6 +3,8 @@ const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
+const { requireSubscription, checkResourceLimit } = require('../middleware/subscriptionMiddleware');
+const { updateUsage, refreshUsage, checkLimit } = require('../utils/usageTracker');
 
 router.get('/my-staff', authMiddleware, async (req, res) => {
   try {
@@ -33,7 +35,7 @@ router.get('/my-staff', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/create-staff', authMiddleware, async (req, res) => {
+router.post('/create-staff', authMiddleware, requireSubscription, checkResourceLimit('staff'), async (req, res) => {
   try {
     // Security Check: Verify the user is an employer-admin
     const employerAdminRef = db.collection('users').doc(req.user.uid);
@@ -81,6 +83,12 @@ router.post('/create-staff', authMiddleware, async (req, res) => {
       createdAt: new Date()
     });
 
+    try {
+      await updateUsage(employerAdminId, 'staff', 1);
+    } catch (usageError) {
+      console.error('Error updating usage for employer staff creation:', usageError);
+    }
+
     // Send a 201 (Created) response with the new staff's data
     res.status(201).json({
       uid: newStaffUser.uid,
@@ -116,6 +124,7 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
     }
 
     const organizationId = adminDoc.data().organizationId;
+    const employerAdminId = req.user.uid;
     const { users, options = {} } = req.body;
 
     if (!Array.isArray(users) || users.length === 0) {
@@ -146,6 +155,17 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
       errors: [],
       createdUsers: []
     };
+
+    const limitCheck = await checkLimit(employerAdminId, 'staff', users.length);
+    if (!limitCheck.allowed) {
+      return res.status(403).json({
+        error: 'Limit exceeded',
+        message: limitCheck.reason || 'You have reached your plan limit.',
+        current: limitCheck.current,
+        limit: limitCheck.limit,
+        requested: limitCheck.requested || users.length,
+      });
+    }
 
     // Process users in batches to avoid overwhelming Firebase
     const batchSize = 10;
@@ -317,6 +337,14 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
           results.failed++;
         }
       }));
+    }
+
+    if (results.created > 0) {
+      try {
+        await refreshUsage(req.user.uid);
+      } catch (usageError) {
+        console.error('Error refreshing usage after bulk employer staff import:', usageError);
+      }
     }
 
     res.status(200).json(results);
@@ -495,6 +523,13 @@ router.delete('/staff/:staffId', authMiddleware, async (req, res) => {
     await db.collection('users').doc(staffId).delete();
     await db.collection('userCredentials').doc(staffId).delete();
     
+    try {
+      await updateUsage(employerAdminId, 'staff', -1);
+      await refreshUsage(employerAdminId);
+    } catch (usageError) {
+      console.error('Error updating usage after employer staff deletion:', usageError);
+    }
+
     res.status(200).json({ success: true, message: 'Staff deleted successfully' });
   } catch (error) {
     console.error('Error deleting staff:', error);

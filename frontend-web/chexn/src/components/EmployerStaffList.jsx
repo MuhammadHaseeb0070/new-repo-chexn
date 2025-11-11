@@ -3,10 +3,12 @@ import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
 import UserManagement from './UserManagement.jsx';
+import SubscriptionModal from './SubscriptionModal.jsx';
 
 function EmployerStaffList({ refreshToken }) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   const fetchStaff = async () => {
     try {
@@ -27,8 +29,19 @@ function EmployerStaffList({ refreshToken }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold text-gray-900">Employer Staff Members</h3>
-        <InfoTooltip description="See every staff account connected to your employer workspace, including their roles and contact info." />
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-gray-900">Employer Staff Members</h3>
+          <InfoTooltip description="See every staff account connected to your employer workspace, including their roles and contact info." />
+        </div>
+        <button
+          onClick={() => setShowSubscriptionModal(true)}
+          className="rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-1.5 text-sm font-medium flex items-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+          </svg>
+          Usage & Subscription
+        </button>
       </div>
       {loading && <div className="mt-3"><Spinner label="Loading staff members..." /></div>}
       {!loading && (
@@ -58,6 +71,13 @@ function EmployerStaffList({ refreshToken }) {
           )}
         </div>
       )}
+
+      {/* Subscription Modal */}
+      <SubscriptionModal
+        isOpen={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        userRole="employer-admin"
+      />
     </div>
   );
 }

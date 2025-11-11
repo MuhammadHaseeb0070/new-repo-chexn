@@ -75,20 +75,30 @@ app.post('/api/subscriptions/webhook', express.raw({ type: 'application/json' })
         
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
         const pkg = packages.getPackage(role, packageId);
+        const customerId = subscription.customer;
+        const priceId = subscription.items?.data?.[0]?.price?.id || pkg.stripePriceId;
         
+        // Save subscription to database
         await db.collection('subscriptions').doc(userId).set({
           userId,
           role,
           packageId,
           stripeSubscriptionId: subscription.id,
-          stripeCustomerId: subscription.customer,
+          stripeCustomerId: customerId,
+          stripePriceId: priceId,
           status: subscription.status,
           limits: pkg.limits,
           currentPeriodStart: new Date(subscription.current_period_start * 1000),
           currentPeriodEnd: new Date(subscription.current_period_end * 1000),
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          cancelAt: subscription.cancel_at ? new Date(subscription.cancel_at * 1000) : null,
           createdAt: new Date(),
           updatedAt: new Date()
+        });
+        
+        // Also save customer ID to user document (needed for portal session)
+        await db.collection('users').doc(userId).update({
+          stripeCustomerId: customerId
         });
         
         console.log(`Subscription created for user ${userId}`);
@@ -99,6 +109,7 @@ app.post('/api/subscriptions/webhook', express.raw({ type: 'application/json' })
       case 'customer.subscription.updated': {
         const subscription = event.data.object;
         const customerId = subscription.customer;
+        const latestSubscription = await stripe.subscriptions.retrieve(subscription.id);
         const userDoc = await db.collection('users')
           .where('stripeCustomerId', '==', customerId)
           .limit(1)
@@ -118,14 +129,38 @@ app.post('/api/subscriptions/webhook', express.raw({ type: 'application/json' })
         }
         
         const subscriptionData = subscriptionDoc.data();
-        const pkg = packages.getPackage(subscriptionData.role, subscriptionData.packageId);
+        let role = subscriptionData.role;
+        let packageId = subscriptionData.packageId;
+        let limits = subscriptionData.limits;
+
+        const priceId = latestSubscription.items?.data?.[0]?.price?.id;
+        if (priceId) {
+          const mappedPkg = packages.getPackageByPriceId(priceId);
+          if (mappedPkg) {
+            role = mappedPkg.role;
+            packageId = mappedPkg.packageId;
+            limits = mappedPkg.pkg.limits;
+          }
+        }
+        if (!limits) {
+          try {
+            const fallbackPkg = packages.getPackage(role, packageId);
+            limits = fallbackPkg.limits;
+          } catch (err) {
+            console.error('Unable to determine package limits for subscription update:', err.message);
+          }
+        }
         
         await db.collection('subscriptions').doc(userId).update({
-          status: subscription.status,
-          limits: pkg.limits,
-          currentPeriodStart: new Date(subscription.current_period_start * 1000),
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          role,
+          packageId,
+          status: latestSubscription.status,
+          limits,
+          stripePriceId: priceId || subscriptionData.stripePriceId,
+          currentPeriodStart: new Date(latestSubscription.current_period_start * 1000),
+          currentPeriodEnd: new Date(latestSubscription.current_period_end * 1000),
+          cancelAtPeriodEnd: latestSubscription.cancel_at_period_end,
+          cancelAt: latestSubscription.cancel_at ? new Date(latestSubscription.cancel_at * 1000) : null,
           updatedAt: new Date()
         });
         
@@ -150,6 +185,8 @@ app.post('/api/subscriptions/webhook', express.raw({ type: 'application/json' })
         
         await db.collection('subscriptions').doc(userId).update({
           status: 'canceled',
+          cancelAtPeriodEnd: false,
+          cancelAt: null,
           updatedAt: new Date()
         });
         
@@ -160,6 +197,8 @@ app.post('/api/subscriptions/webhook', express.raw({ type: 'application/json' })
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object;
         const customerId = invoice.customer;
+        const subscriptionId = invoice.subscription;
+        
         const userDoc = await db.collection('users')
           .where('stripeCustomerId', '==', customerId)
           .limit(1)
@@ -171,20 +210,64 @@ app.post('/api/subscriptions/webhook', express.raw({ type: 'application/json' })
         
         const userId = userDoc.docs[0].id;
         const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
-        if (subscriptionDoc.exists && subscriptionDoc.data().status === 'past_due') {
-          await db.collection('subscriptions').doc(userId).update({
-            status: 'active',
-            updatedAt: new Date()
-          });
+        
+        if (!subscriptionDoc.exists) {
+          break;
+        }
+
+        // Retrieve the latest subscription status from Stripe to ensure accuracy
+        let stripeSubscriptionStatus = 'active';
+        if (subscriptionId) {
+          try {
+            const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+            stripeSubscriptionStatus = stripeSubscription.status;
+            
+            // If subscription status is active, ensure package info is up to date
+            if (stripeSubscriptionStatus === 'active') {
+              const subscriptionData = subscriptionDoc.data();
+              const priceId = stripeSubscription.items?.data?.[0]?.price?.id;
+              
+              // Try to get package info from price ID
+              if (priceId) {
+                const mappedPkg = packages.getPackageByPriceId(priceId);
+                if (mappedPkg) {
+                  await db.collection('subscriptions').doc(userId).update({
+                    status: 'active',
+                    packageId: mappedPkg.packageId,
+                    limits: mappedPkg.pkg.limits,
+                    stripePriceId: priceId,
+                    updatedAt: new Date()
+                  });
+                  console.log(`Payment succeeded for user ${userId}. Package confirmed: ${mappedPkg.packageId}`);
+                  break;
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error retrieving subscription status:', err);
+          }
         }
         
-        console.log(`Payment succeeded for user ${userId}`);
+        // Update status to active if it was past_due
+        const subscriptionData = subscriptionDoc.data();
+        if (subscriptionData.status === 'past_due' || subscriptionData.status === 'unpaid') {
+          await db.collection('subscriptions').doc(userId).update({
+            status: stripeSubscriptionStatus,
+            updatedAt: new Date()
+          });
+          console.log(`Payment succeeded for user ${userId}. Subscription restored to ${stripeSubscriptionStatus}`);
+        } else {
+          console.log(`Payment succeeded for user ${userId}. Subscription already active.`);
+        }
+        
         break;
       }
       
       case 'invoice.payment_failed': {
         const invoice = event.data.object;
         const customerId = invoice.customer;
+        const subscriptionId = invoice.subscription;
+        
         const userDoc = await db.collection('users')
           .where('stripeCustomerId', '==', customerId)
           .limit(1)
@@ -195,13 +278,35 @@ app.post('/api/subscriptions/webhook', express.raw({ type: 'application/json' })
         }
         
         const userId = userDoc.docs[0].id;
+        const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
         
+        if (!subscriptionDoc.exists) {
+          break;
+        }
+
+        const subscriptionData = subscriptionDoc.data();
+        
+        // Retrieve the latest subscription status from Stripe
+        let stripeSubscriptionStatus = 'past_due';
+        if (subscriptionId) {
+          try {
+            const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+            stripeSubscriptionStatus = stripeSubscription.status;
+          } catch (err) {
+            console.error('Error retrieving subscription status:', err);
+          }
+        }
+        
+        // Update subscription status
+        // Note: We keep the packageId as-is, but status becomes 'past_due'
+        // This blocks user access until payment succeeds
         await db.collection('subscriptions').doc(userId).update({
-          status: 'past_due',
+          status: stripeSubscriptionStatus,
           updatedAt: new Date()
         });
         
-        console.log(`Payment failed for user ${userId}`);
+        console.log(`Payment failed for user ${userId}. Subscription status: ${stripeSubscriptionStatus}`);
+        console.log(`User ${userId} will be blocked from accessing features until payment succeeds.`);
         break;
       }
     }

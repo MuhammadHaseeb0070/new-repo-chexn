@@ -26,7 +26,7 @@ module.exports = {
     },
     standard: {
       name: "Standard Parent",
-      price: 1.00, // $1 for testing
+      price: 5.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_parent_standard",
@@ -46,7 +46,7 @@ module.exports = {
     },
     premium: {
       name: "Premium Parent",
-      price: 1.00, // $1 for testing
+      price: 10.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_parent_premium",
@@ -71,7 +71,7 @@ module.exports = {
   schoolAdmin: {
     starter: {
       name: "Starter School",
-      price: 1.00, // $1 for testing
+      price: 10.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_school_starter",
@@ -93,7 +93,7 @@ module.exports = {
     },
     professional: {
       name: "Professional School",
-      price: 1.00, // $1 for testing
+      price: 20.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_school_professional",
@@ -116,7 +116,7 @@ module.exports = {
     },
     enterprise: {
       name: "Enterprise School",
-      price: 1.00, // $1 for testing
+      price: 30.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_school_enterprise",
@@ -144,7 +144,7 @@ module.exports = {
   districtAdmin: {
     small: {
       name: "Small District",
-      price: 1.00, // $1 for testing
+      price: 30.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_district_small",
@@ -167,7 +167,7 @@ module.exports = {
     },
     medium: {
       name: "Medium District",
-      price: 1.00, // $1 for testing
+      price: 50.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_district_medium",
@@ -191,7 +191,7 @@ module.exports = {
     },
     large: {
       name: "Large District",
-      price: 1.00, // $1 for testing
+      price: 70.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_district_large",
@@ -221,7 +221,7 @@ module.exports = {
   employerAdmin: {
     small: {
       name: "Small Business",
-      price: 1.00, // $1 for testing
+      price: 80.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_employer_small",
@@ -242,7 +242,7 @@ module.exports = {
     },
     medium: {
       name: "Medium Business",
-      price: 1.00, // $1 for testing
+      price: 120.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_employer_medium",
@@ -264,7 +264,7 @@ module.exports = {
     },
     enterprise: {
       name: "Enterprise Business",
-      price: 1.00, // $1 for testing
+      price: 150.00, // $1 for testing
       currency: "usd",
       billingInterval: "month",
       stripeProductId: "prod_employer_enterprise",
@@ -328,4 +328,23 @@ function mapRoleToBackend(role) {
 module.exports.getPackage = getPackage;
 module.exports.getPackagesForRole = getPackagesForRole;
 module.exports.mapRoleToBackend = mapRoleToBackend;
+
+function getPackageByPriceId(priceId) {
+  if (!priceId) {
+    return null;
+  }
+  const roles = ['parent', 'schoolAdmin', 'districtAdmin', 'employerAdmin'];
+  for (const role of roles) {
+    const rolePackages = module.exports[role];
+    if (!rolePackages) continue;
+    for (const [id, pkg] of Object.entries(rolePackages)) {
+      if (pkg.stripePriceId === priceId) {
+        return { role, packageId: id, pkg };
+      }
+    }
+  }
+  return null;
+}
+
+module.exports.getPackageByPriceId = getPackageByPriceId;
 

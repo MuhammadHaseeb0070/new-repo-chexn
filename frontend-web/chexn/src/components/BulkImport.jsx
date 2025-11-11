@@ -7,7 +7,7 @@ import apiClient from '../apiClient.js';
  * Parse CSV/text data into array of user objects
  * Only supports comma-separated values
  */
-function parseImportData(text) {
+function parseImportData(text, parseMode = 'default') {
   if (!text || !text.trim()) {
     return { users: [], errors: [] };
   }
@@ -40,6 +40,39 @@ function parseImportData(text) {
 
     if (values.length < 2) {
       errors.push({ row, error: 'Insufficient columns. Need at least First Name and Last Name.' });
+      return;
+    }
+
+    if (parseMode === 'district-institutes') {
+      // Expected: Institute Name, Institute Type, Admin First, Admin Last, Email, Password
+      let instituteName, instituteType, firstName, lastName, email, password;
+      if (headers) {
+        const h = {};
+        headers.forEach((k, i) => { h[k] = values[i] || ''; });
+        instituteName = h['institute name'] || h['school name'] || values[0] || '';
+        instituteType = h['institute type'] || h['school type'] || values[1] || '';
+        firstName = h['admin first name'] || h['first name'] || values[2] || '';
+        lastName = h['admin last name'] || h['last name'] || values[3] || '';
+        email = h['email'] || values[4] || '';
+        password = h['password'] || values[5] || '';
+      } else {
+        instituteName = values[0] || '';
+        instituteType = values[1] || '';
+        firstName = values[2] || '';
+        lastName = values[3] || '';
+        email = values[4] || '';
+        password = values[5] || '';
+      }
+
+      if (!instituteName) {
+        errors.push({ row, error: 'Institute Name is required' });
+        return;
+      }
+      if (!firstName || !lastName) {
+        errors.push({ row, error: 'Admin first and last name are required' });
+        return;
+      }
+      users.push({ instituteName: instituteName.trim(), instituteType: (instituteType || '').trim() || 'elementary', firstName: firstName.trim(), lastName: lastName.trim(), email: (email || '').trim(), password: (password || '').trim() });
       return;
     }
 
@@ -124,7 +157,8 @@ function BulkImport({
   maxUsers = 100,
   showRoleField = false,
   defaultRole = 'supervisor',
-  roleOptions = []
+  roleOptions = [],
+  parseMode = 'default'
 }) {
   // Generate unique storage key based on endpoint
   const storageKey = `bulkImport_${endpoint.replace(/\//g, '_')}`;
@@ -150,6 +184,9 @@ function BulkImport({
   const [showPreview, setShowPreview] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importResults, setImportResults] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [portalLoading, setPortalLoading] = useState(false);
   
   // Import options
   const [generateEmails, setGenerateEmails] = useState(false);
@@ -157,6 +194,25 @@ function BulkImport({
   const [generatePasswords, setGeneratePasswords] = useState(true);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [selectedRole, setSelectedRole] = useState(defaultRole);
+
+  // Determine example role values for format guide/placeholder
+  const roleExample1 = (roleOptions && roleOptions.length > 0) ? (roleOptions[0].value || roleOptions[0].label) : (userType === 'staff' ? 'supervisor' : 'role1');
+  const roleExample2 = (roleOptions && roleOptions.length > 1) ? (roleOptions[1].value || roleOptions[1].label) : (userType === 'staff' ? 'hr' : 'role2');
+
+  const isDistrictInstitutes = parseMode === 'district-institutes';
+  const formatHeaders = isDistrictInstitutes
+    ? 'Institute Name,Institute Type,Admin First Name,Admin Last Name,Email,Password'
+    : `First Name,Last Name,Phone,Email,Password${showRoleField ? ',Role' : ''}`;
+  const exampleLine1 = isDistrictInstitutes
+    ? 'Southview Elementary,elementary,Sarah,Lee,admin1@school.org,Pass123'
+    : `John,Doe,+1234567890,john@example.com,Pass123${showRoleField ? `,${roleExample1}` : ''}`;
+  const exampleLine2 = isDistrictInstitutes
+    ? 'Ridge High,high-school,Tom,Hanks,admin2@school.org,Pass123'
+    : `Jane,Smith,+1987654321,jane@example.com,Pass123${showRoleField ? `,${roleExample2}` : ''}`;
+
+  const topTooltip = isDistrictInstitutes
+    ? `Import multiple ${userType} at once. Format: Institute Name, Institute Type, Admin First Name, Admin Last Name, Email, Password.`
+    : `Import multiple ${userType} at once by pasting data from Excel or CSV. Format: First Name, Last Name, Phone (optional), Email (optional), Password (optional).`;
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -226,7 +282,7 @@ function BulkImport({
   };
 
   const handleParse = () => {
-    const { users, errors } = parseImportData(inputText);
+    const { users, errors } = parseImportData(inputText, parseMode);
     
     // Validate each user
     const valErrors = {};
@@ -262,6 +318,8 @@ function BulkImport({
 
     setIsImporting(true);
     setImportResults(null);
+    setErrorMessage('');
+    setShowUpgrade(false);
 
     const requestOptions = {
       generateEmails,
@@ -291,7 +349,9 @@ function BulkImport({
       }
     } catch (error) {
       console.error('Import error:', error);
-      alert(error.response?.data?.error || 'Failed to import users');
+      const message = error.response?.data?.message || error.response?.data?.error || 'Failed to import users.';
+      setErrorMessage(message);
+      setShowUpgrade(Boolean(error.response?.data?.canUpgrade));
     } finally {
       setIsImporting(false);
     }
@@ -325,12 +385,48 @@ function BulkImport({
     setInputText('');
   };
 
+  const handleManageSubscription = async () => {
+    try {
+      setPortalLoading(true);
+      setErrorMessage('Opening subscription portal...');
+      const res = await apiClient.post('/subscriptions/create-portal-session');
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        throw new Error('Portal URL not received');
+      }
+    } catch (error) {
+      const message = error.response?.data?.error || error.message || 'Failed to open subscription portal.';
+      setErrorMessage(message);
+    } finally {
+      setPortalLoading(false);
+    }
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
       <div className="flex items-center justify-between gap-2 mb-4">
         <h3 className="text-lg font-semibold text-gray-900">Bulk Import {userType}</h3>
-        <InfoTooltip description={`Import multiple ${userType} at once by pasting data from Excel or CSV. Format: First Name, Last Name, Phone (optional), Email (optional), Password (optional).`} />
+        <InfoTooltip description={topTooltip} />
       </div>
+
+      {errorMessage && (
+        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <p>{errorMessage}</p>
+            {showUpgrade && (
+              <button
+                type="button"
+                onClick={handleManageSubscription}
+                disabled={portalLoading}
+                className="text-blue-600 hover:text-blue-800 underline disabled:opacity-60"
+              >
+                {portalLoading ? 'Opening...' : 'Manage Subscription'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {!showPreview && !importResults && (
         <>
@@ -354,21 +450,21 @@ function BulkImport({
                     <div className="space-y-1.5">
                       <div>
                         <span className="text-gray-500 text-[9px] sm:text-[10px] block mb-0.5">Headers (optional):</span>
-                        <div className="text-gray-900 break-words overflow-wrap-anywhere" style={{ wordBreak: 'break-word' }}>
-                          First Name,Last Name,Phone,Email,Password{showRoleField ? ',Role' : ''}
-                        </div>
+                        <div className="text-gray-900 break-words overflow-wrap-anywhere" style={{ wordBreak: 'break-word' }}>{formatHeaders}</div>
                       </div>
                       <div>
                         <span className="text-gray-500 text-[9px] sm:text-[10px] block mb-0.5">Example rows:</span>
                         <div className="text-gray-900 space-y-0.5 break-words overflow-wrap-anywhere" style={{ wordBreak: 'break-word' }}>
-                          <div>John,Doe,+1234567890,john@example.com,Pass123{showRoleField ? ',supervisor' : ''}</div>
-                          <div>Jane,Smith,+1987654321,jane@example.com,Pass123{showRoleField ? ',hr' : ''}</div>
+                          <div>{exampleLine1}</div>
+                          <div>{exampleLine2}</div>
                         </div>
                       </div>
                     </div>
                   </div>
                   <p className="text-[10px] sm:text-xs text-gray-600 leading-relaxed break-words">
-                    <strong>Note:</strong> Phone, Email, and Password are optional. Empty fields will be auto-generated if enabled below.
+                    {isDistrictInstitutes
+                      ? 'Note: Institute Type can be elementary, middle-school, high-school, or college.'
+                      : 'Note: Phone, Email, and Password are optional. Empty fields will be auto-generated if enabled below.'}
                   </p>
                 </div>
               </div>
@@ -382,9 +478,11 @@ function BulkImport({
                 value={inputText}
                   onChange={(e) => handleInputChange(e.target.value)}
                 placeholder={
-                  showRoleField
-                    ? "First Name,Last Name,Phone,Email,Password,Role\nJohn,Doe,+1234567890,john@example.com,Password123,supervisor\nJane,Smith,+1987654321,jane@example.com,Password123,hr"
-                    : "First Name,Last Name,Phone,Email,Password\nJohn,Doe,+1234567890,john@example.com,Password123\nJane,Smith,+1987654321,jane@example.com,Password123"
+                  parseMode === 'district-institutes'
+                    ? "Institute Name,Institute Type,Admin First Name,Admin Last Name,Email,Password\nSouthview Elementary,elementary,Sarah,Lee,admin1@school.org,Pass123\nRidge High,high-school,Tom,Hanks,admin2@school.org,Pass123"
+                    : (showRoleField
+                      ? `First Name,Last Name,Phone,Email,Password,Role\nJohn,Doe,+1234567890,john@example.com,Password123,${roleExample1}\nJane,Smith,+1987654321,jane@example.com,Password123,${roleExample2}`
+                      : "First Name,Last Name,Phone,Email,Password\nJohn,Doe,+1234567890,john@example.com,Password123\nJane,Smith,+1987654321,jane@example.com,Password123")
                 }
                 rows={8}
                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 rounded-md border border-gray-300 bg-white text-gray-900 font-mono text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent resize-y break-words overflow-wrap-anywhere"

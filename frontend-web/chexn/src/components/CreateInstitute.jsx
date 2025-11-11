@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
 import InfoTooltip from './InfoTooltip.jsx';
+import BulkImport from './BulkImport.jsx';
 
 function CreateInstitute({ onCreated }) {
   const [email, setEmail] = useState('');
@@ -11,6 +12,7 @@ function CreateInstitute({ onCreated }) {
   const [instituteName, setInstituteName] = useState('');
   const [instituteType, setInstituteType] = useState('elementary');
   const [message, setMessage] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -48,9 +50,27 @@ function CreateInstitute({ onCreated }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold text-gray-900">Add a New Institute</h3>
-        <InfoTooltip description="Create a school or campus account along with its primary administrator." />
+        <h3 className="text-lg font-semibold text-gray-900">District Admin: Manage Schools (Create School Admins)</h3>
+        <InfoTooltip description="You are a district-level admin. Create school (institute) accounts and their primary school admins here." />
       </div>
+      <div className="mt-3 mb-4">
+        <button
+          type="button"
+          onClick={() => setShowImport(!showImport)}
+          className="w-full rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-2 font-medium transition-colors"
+        >
+          {showImport ? '← Single Institute Entry' : '📥 Bulk Import Schools'}
+        </button>
+      </div>
+      {showImport ? (
+        <BulkImport
+          endpoint="/district/bulk-create-institutes"
+          onImportComplete={onCreated}
+          userType="institutes"
+          maxUsers={100}
+          parseMode="district-institutes"
+        />
+      ) : (
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1 md:col-span-2">
           <label className="block text-sm text-gray-600">Institute Name</label>
@@ -87,6 +107,7 @@ function CreateInstitute({ onCreated }) {
           </button>
         </div>
       </form>
+      )}
       {message && <p className="mt-3 text-sm text-gray-500">{message}</p>}
     </div>
   );

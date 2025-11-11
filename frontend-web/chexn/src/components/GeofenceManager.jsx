@@ -12,6 +12,12 @@ function GeofenceManager({ targetUserId }) {
   const [lon, setLon] = useState('');
   const [radius, setRadius] = useState(1000);
 
+  // Search state (OpenStreetMap Nominatim)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const searchAbortRef = useRef(null);
+
   // Leaflet map refs
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -146,59 +152,171 @@ function GeofenceManager({ targetUserId }) {
       setMessage('Geolocation is not supported by your browser.');
       return;
     }
-    
+
+    // Helpful hints when running over HTTP or blocked
+    try {
+      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        setMessage('Tip: For best accuracy, use HTTPS or localhost.');
+      }
+    } catch {}
+
     setMessage('Getting your location...');
-    
-    // Request high accuracy with timeout
+
     const options = {
-      enableHighAccuracy: true, // Request GPS-level accuracy
-      timeout: 10000, // 10 second timeout
-      maximumAge: 0 // Don't use cached position
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
     };
-    
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        // Use higher precision (8 decimal places = ~1.1mm precision)
-        setLat(latitude.toFixed(8));
-        setLon(longitude.toFixed(8));
-        
-        console.log(`Location obtained: ${latitude}, ${longitude} (accuracy: ${accuracy}m)`);
-        
+
+    // Helper: one-shot getCurrentPosition as a Promise
+    const once = () => new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve(pos),
+        err => reject(err),
+        options
+      );
+    });
+
+    // Helper: brief watch that resolves when we get a significantly better fix or time out
+    const watchForBetter = (bestAcc, ms = 10000) => new Promise((resolve) => {
+      if (!navigator.geolocation.watchPosition) return resolve(null);
+      let best = null;
+      const wid = navigator.geolocation.watchPosition(
+        (p) => {
+          const a = p.coords?.accuracy;
+          // Accept if we get a materially better fix
+          if (typeof a === 'number' && a > 0 && a < Math.max(5, bestAcc * 0.6)) {
+            best = p;
+            cleanup();
+            resolve(best);
+          }
+        },
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 0 }
+      );
+      const cleanup = () => {
+        try { navigator.geolocation.clearWatch(wid); } catch {}
+      };
+      setTimeout(() => { cleanup(); resolve(best); }, ms);
+    });
+
+    // Strategy: try up to two one-shot reads, then a short watch to refine
+    (async () => {
+      try {
+        // First attempt
+        let best = await once();
+        // A second attempt sometimes yields a GPS fix after radios wake up
+        try {
+          const second = await once();
+          if ((second.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) best = second;
+        } catch {}
+
+        // Optional refinement via watch
+        const improved = await watchForBetter(best.coords.accuracy || 9999, 12000);
+        let final = improved || best;
+
+        // If the reported accuracy is extremely poor (>1000m), try a longer refinement pass
+        if (!Number.isFinite(final.coords.accuracy) || final.coords.accuracy > 1000) {
+          setMessage(`Low-accuracy fix detected (~${Math.round(final.coords.accuracy || 0)}m). Improving…`);
+          const improved2 = await watchForBetter(final.coords.accuracy || 9999, 20000);
+          if (improved2 && (improved2.coords.accuracy || Infinity) < (final.coords.accuracy || Infinity)) {
+            final = improved2;
+          }
+        }
+
+        const { latitude, longitude, accuracy } = final.coords;
+
+        // Reject extremely imprecise fixes; ask user to try again or use search
+        if (!Number.isFinite(accuracy) || accuracy > 1000) {
+          setMessage('Couldn’t obtain a precise GPS fix (±1km+). Please move near a window, enable Precise Location, or use the search box to set the fence exactly.');
+          return;
+        }
+
+        // Keep full precision internally; round only for input display
+        setLat(Number(latitude).toFixed(8));
+        setLon(Number(longitude).toFixed(8));
+
         if (mapRef.current) {
-          mapRef.current.setView([latitude, longitude], 18); // Zoom closer for precision
+          mapRef.current.setView([latitude, longitude], accuracy < 30 ? 18 : 16);
         }
-        if (markerRef.current) {
-          markerRef.current.setLatLng([latitude, longitude]);
-        }
-        if (circleRef.current) {
-          circleRef.current.setLatLng([latitude, longitude]);
-        }
-        
-        setMessage(`Location set! Accuracy: ${Math.round(accuracy)}m`);
-        setTimeout(() => setMessage(''), 3000);
-      },
-      (error) => {
+        markerRef.current && markerRef.current.setLatLng([latitude, longitude]);
+        circleRef.current && circleRef.current.setLatLng([latitude, longitude]);
+
+        const accText = typeof accuracy === 'number' ? `${Math.round(accuracy)}m` : 'unknown';
+        setMessage(`Location set${improved ? ' (refined)' : ''}! Accuracy: ${accText}`);
+        setTimeout(() => setMessage(''), 3500);
+      } catch (error) {
         let errorMsg = 'Failed to get location. ';
-        switch(error.code) {
-          case error.PERMISSION_DENIED:
-            errorMsg += 'Please allow location access.';
+        switch (error && error.code) {
+          case error?.PERMISSION_DENIED:
+            errorMsg += 'Please allow location access and try again.';
             break;
-          case error.POSITION_UNAVAILABLE:
-            errorMsg += 'Location information unavailable.';
+          case error?.POSITION_UNAVAILABLE:
+            errorMsg += 'Location unavailable. Try moving near a window or enabling GPS.';
             break;
-          case error.TIMEOUT:
-            errorMsg += 'Location request timed out. Please try again.';
+          case error?.TIMEOUT:
+            errorMsg += 'Timed out. Try again or search your address below.';
             break;
           default:
-            errorMsg += 'Unknown error occurred.';
+            errorMsg += 'Unknown error. Try again or search your address below.';
             break;
         }
         setMessage(errorMsg);
         console.error('Geolocation error:', error);
-      },
-      options
-    );
+      }
+    })();
+  };
+
+  // Debounced place search (OpenStreetMap Nominatim)
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    // Abort previous
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+      searchAbortRef.current = null;
+    }
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const timer = setTimeout(async () => {
+      try {
+        // Nominatim: public API. Respect usage policy (limit & UA implicitly handled by browser).
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1&q=${encodeURIComponent(q)}`;
+        const res = await fetch(url, { signal: controller.signal, headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('Geocoding failed');
+        const data = await res.json();
+        const items = (data || []).map((d) => ({
+          label: d.display_name,
+          lat: parseFloat(d.lat),
+          lon: parseFloat(d.lon),
+        }));
+        setSearchResults(items);
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          setSearchResults([]);
+        }
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 400); // debounce
+    return () => {
+      clearTimeout(timer);
+      try { controller.abort(); } catch {}
+    };
+  }, [searchQuery]);
+
+  const applySearchResult = (item) => {
+    setLat(item.lat.toFixed(8));
+    setLon(item.lon.toFixed(8));
+    if (mapRef.current) mapRef.current.setView([item.lat, item.lon], 17);
+    markerRef.current && markerRef.current.setLatLng([item.lat, item.lon]);
+    circleRef.current && circleRef.current.setLatLng([item.lat, item.lon]);
+    setSearchResults([]);
+    setSearchQuery(item.label);
   };
 
   const handleSubmit = async (e) => {
@@ -275,6 +393,33 @@ function GeofenceManager({ targetUserId }) {
             />
           </div>
           <div className="md:col-span-3">
+            {/* Place Search */}
+            <div className="mb-3">
+              <label className="block text-sm text-gray-600">Search place</label>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search an address, place, or coordinates"
+                className="w-full px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+              />
+              {searchLoading && <p className="mt-1 text-xs text-gray-500">Searching…</p>}
+              {searchResults.length > 0 && (
+                <ul className="mt-1 max-h-40 overflow-auto border border-gray-200 rounded-md bg-white shadow-sm divide-y">
+                  {searchResults.map((r, idx) => (
+                    <li key={idx}>
+                      <button
+                        type="button"
+                        onClick={() => applySearchResult(r)}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                      >
+                        {r.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <div className="h-64 w-full rounded-md border border-gray-300 overflow-hidden" ref={mapContainerRef} />
             <div className="mt-2 flex gap-2">
               <button type="button" onClick={useMyLocation} className="rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-1.5">

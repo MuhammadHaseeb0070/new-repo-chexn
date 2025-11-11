@@ -3,6 +3,8 @@ const router = express.Router();
 const { db, admin } = require('../config/firebase'); // We need 'admin'
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
+const { checkResourceLimit } = require('../middleware/subscriptionMiddleware');
+const { updateUsage, refreshUsage, checkLimit } = require('../utils/usageTracker');
 // We don't need humanReadableId, that was a mistake in my old code.
 
 // GET /my-students - Copy from teacherRoutes.js
@@ -159,12 +161,13 @@ router.post('/checkins/:studentId/mark-read', authMiddleware, async (req, res) =
 });
 
 // POST /create-student - (This was missing)
-router.post('/create-student', authMiddleware, async (req, res) => {
+router.post('/create-student', authMiddleware, checkResourceLimit('student'), async (req, res) => {
   try {
     // Security Check: Verify the user is a staff member
     const staffRef = db.collection('users').doc(req.user.uid);
     const staffDoc = await staffRef.get();
-    const staffRole = staffDoc.data()?.role;
+    const staffData = staffDoc.data() || {};
+    const staffRole = staffData.role;
     const creatorId = req.user.uid;
 
     if (!staffDoc.exists || (staffRole !== 'teacher' && staffRole !== 'counselor' && staffRole !== 'social-worker')) {
@@ -172,7 +175,7 @@ router.post('/create-student', authMiddleware, async (req, res) => {
     }
 
     // If authorized, get data
-    const organizationId = staffDoc.data().organizationId;
+    const organizationId = staffData.organizationId;
     const { email, password, firstName, lastName, phoneNumber } = req.body;
 
     // Create the user in Firebase Auth (with emailVerified: true)
@@ -211,6 +214,16 @@ router.post('/create-student', authMiddleware, async (req, res) => {
       createdAt: new Date()
     });
 
+    const adminId = staffData.creatorId;
+    const staffName = [staffData.firstName, staffData.lastName].filter(Boolean).join(' ') || staffData.email || 'Staff';
+    try {
+      if (adminId) {
+        await updateUsage(adminId, `student:${creatorId}`, 1, { staffName });
+      }
+    } catch (usageError) {
+      console.error('Error updating usage for student creation:', usageError);
+    }
+
     res.status(201).json({
       uid: newStudentUser.uid,
       email,
@@ -233,14 +246,16 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
     // Security Check: Verify the user is a staff member
     const staffRef = db.collection('users').doc(req.user.uid);
     const staffDoc = await staffRef.get();
-    const staffRole = staffDoc.data()?.role;
+    const staffData = staffDoc.data() || {};
+    const staffRole = staffData.role;
     const creatorId = req.user.uid;
 
     if (!staffDoc.exists || (staffRole !== 'teacher' && staffRole !== 'counselor' && staffRole !== 'social-worker')) {
       return res.status(403).json({ error: 'You are not authorized for this action.' });
     }
 
-    const organizationId = staffDoc.data().organizationId;
+    const organizationId = staffData.organizationId;
+    const adminId = staffData.creatorId;
     const { users, options = {} } = req.body;
 
     if (!Array.isArray(users) || users.length === 0) {
@@ -261,6 +276,20 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
     // Validate email domain if generating emails
     if (generateEmails && !emailDomain) {
       return res.status(400).json({ error: 'emailDomain is required when generateEmails is true' });
+    }
+
+    if (adminId) {
+      const limitCheck = await checkLimit(req.user.uid, 'student', users.length);
+      if (!limitCheck.allowed) {
+        return res.status(403).json({
+          error: 'Limit exceeded',
+          message: limitCheck.reason || 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+          current: limitCheck.current,
+          limit: limitCheck.limit,
+          requested: limitCheck.requested || users.length,
+          canUpgrade: true,
+        });
+      }
     }
 
     const results = {
@@ -292,6 +321,20 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
     // Track generated emails to avoid duplicates in batch
     const generatedEmails = new Set();
     const emailCounts = new Map(); // Track counts for suffix generation
+
+    // Check limits before processing
+    if (adminId) {
+      const limitCheck = await checkLimit(req.user.uid, 'student', users.length);
+      if (!limitCheck.allowed) {
+        return res.status(403).json({
+          error: 'Limit exceeded',
+          message: limitCheck.reason || 'You have reached your plan limit.',
+          current: limitCheck.current,
+          limit: limitCheck.limit,
+          requested: limitCheck.requested || users.length,
+        });
+      }
+    }
 
     // Process users
     for (let i = 0; i < users.length; i++) {
@@ -463,6 +506,14 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
       }
     }
 
+    if (results.created > 0 && adminId) {
+      try {
+        await refreshUsage(adminId);
+      } catch (usageError) {
+        console.error('Error refreshing usage after bulk student import:', usageError);
+      }
+    }
+
     res.status(200).json(results);
   } catch (error) {
     console.error('Error in bulk create students:', error);
@@ -628,6 +679,19 @@ router.delete('/student/:studentId', authMiddleware, async (req, res) => {
     });
     await batch.commit();
     
+    try {
+      const staffDoc = await db.collection('users').doc(staffId).get();
+      const staffData = staffDoc.data() || {};
+      const adminId = staffData.creatorId;
+      const staffName = [staffData.firstName, staffData.lastName].filter(Boolean).join(' ') || staffData.email || 'Staff';
+      if (adminId) {
+        await updateUsage(adminId, `student:${staffId}`, -1, { staffName });
+        await refreshUsage(adminId);
+      }
+    } catch (usageError) {
+      console.error('Error updating usage after student deletion:', usageError);
+    }
+
     res.status(200).json({ success: true, message: 'Student deleted successfully' });
   } catch (error) {
     console.error('Error deleting student:', error);

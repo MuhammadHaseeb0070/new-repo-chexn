@@ -22,6 +22,7 @@ import StaffDashboard from "./components/StaffDashboard.jsx";
 import InstituteList from "./components/InstituteList.jsx";
 import SchoolStaffList from "./components/SchoolStaffList.jsx";
 import EmployerStaffList from "./components/EmployerStaffList.jsx";
+import PackageSelection from "./components/PackageSelection.jsx";
 
 function App() {
   const [authUser, setAuthUser] = useState(null);
@@ -35,6 +36,8 @@ function App() {
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState(0);
   const [selfCheckInsRefreshKey, setSelfCheckInsRefreshKey] = useState(0);
   const [parentChildrenRefreshKey, setParentChildrenRefreshKey] = useState(0);
+  const [showPackageSelection, setShowPackageSelection] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   const handleSignOut = async () => {
     try {
@@ -76,6 +79,22 @@ function App() {
     }
   }, []);
 
+  // Check for Stripe checkout success
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+    if (sessionId) {
+      // User just completed checkout
+      setShowSuccessMessage(true);
+      // Remove the session_id from URL
+      window.history.replaceState({}, '', window.location.pathname);
+      // Reload after a short delay to ensure webhook has processed
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -100,10 +119,44 @@ function App() {
         
         // Check if they have a profile in our DB
         apiClient.get('/users/me')
-          .then(response => {
+          .then(async (response) => {
             // They have a profile, save it
-            setUserProfile(response.data);
+            const profile = response.data;
+            setUserProfile(profile);
             setIsNewUser(false);
+            
+            // Check if user needs subscription (paying roles)
+            const payingRoles = ['parent', 'school-admin', 'district-admin', 'employer-admin'];
+            if (payingRoles.includes(profile.role)) {
+              try {
+                // Special case: school-admin may be covered by district subscription
+                if (profile.role === 'school-admin') {
+                  try {
+                    const cov = await apiClient.get('/district/coverage');
+                    if (cov?.data?.covered) {
+                      setShowPackageSelection(false);
+                      return;
+                    }
+                  } catch (e) {
+                    // ignore coverage errors; fall back to direct subscription check
+                    console.warn('Coverage check failed; falling back to direct subscription check', e?.message || e);
+                  }
+                }
+
+                const subscriptionRes = await apiClient.get('/subscriptions/current');
+                if (!subscriptionRes.data || (subscriptionRes.data.status !== 'active' && subscriptionRes.data.status !== 'trialing')) {
+                  setShowPackageSelection(true);
+                } else {
+                  setShowPackageSelection(false);
+                }
+              } catch (error) {
+                console.error('Error checking subscription:', error);
+                setShowPackageSelection(true);
+              }
+            } else {
+              setShowPackageSelection(false);
+            }
+            
             // Request push permission and register token
             requestNotificationPermission();
             // Setup foreground message handler for notifications
@@ -182,9 +235,36 @@ function App() {
         <SelectRole />
       )}
 
-      {/* 5. User is fully logged in, verified, and has a profile */}
-      {!loading && authUser && authUser.emailVerified && userProfile && (
+      {/* 4.5. User needs to select a package */}
+      {!loading && authUser && authUser.emailVerified && userProfile && showPackageSelection && (
+        <PackageSelection 
+          role={userProfile.role === 'school-admin' ? 'school' : userProfile.role === 'district-admin' ? 'district' : userProfile.role === 'employer-admin' ? 'employer' : 'parent'} 
+        />
+      )}
+
+      {/* 5. User is fully logged in, verified, has a profile, and has subscription (if needed) */}
+      {!loading && authUser && authUser.emailVerified && userProfile && !showPackageSelection && (
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {/* Success Message */}
+          {showSuccessMessage && (
+            <div className="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-md">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <p className="font-medium">Subscription activated successfully! Your account is now active.</p>
+                </div>
+                <button
+                  onClick={() => setShowSuccessMessage(false)}
+                  className="text-green-600 hover:text-green-800"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>

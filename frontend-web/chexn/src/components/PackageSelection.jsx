@@ -7,7 +7,8 @@ function PackageSelection({ role, onPackageSelected }) {
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState(null);
-  const [processing, setProcessing] = useState(false);
+  const [processingPackageId, setProcessingPackageId] = useState(null);
+  const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -34,9 +35,10 @@ function PackageSelection({ role, onPackageSelected }) {
 
   const handleSelectPackage = async (pkg) => {
     try {
-      setProcessing(true);
+      setProcessingPackageId(pkg.id);
+      setSelectedPackage(pkg);
       setError('');
-      
+
       // Create checkout session
       const response = await apiClient.post('/subscriptions/create-checkout-session', {
         role,
@@ -47,8 +49,41 @@ function PackageSelection({ role, onPackageSelected }) {
       window.location.href = response.data.url;
     } catch (error) {
       console.error('Error creating checkout session:', error);
-      setError(error.response?.data?.error || 'Failed to start checkout. Please try again.');
-      setProcessing(false);
+      if (error.response?.data?.error === 'existing_subscription') {
+        setError('You already have an active subscription. Use Manage Subscription to change or upgrade your plan.');
+        setProcessingPackageId(null);
+        return;
+      }
+      const message =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        'Failed to start checkout. Please try again.';
+      setError(message);
+    } finally {
+      // If checkout did not redirect (e.g., error), ensure processing resets
+      setProcessingPackageId(null);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    try {
+      setPortalLoading(true);
+      setError('');
+      const response = await apiClient.post('/subscriptions/create-portal-session');
+      if (response.data?.url) {
+        window.location.href = response.data.url;
+      } else {
+        throw new Error('No portal URL received');
+      }
+    } catch (error) {
+      console.error('Error opening portal:', error);
+      const message =
+        error.response?.data?.error ||
+        error.message ||
+        'Failed to open subscription management. Please try again.';
+      setError(message);
+      setPortalLoading(false);
     }
   };
 
@@ -84,6 +119,22 @@ function PackageSelection({ role, onPackageSelected }) {
             {error}
           </div>
         )}
+
+        <div className="flex justify-center mb-6">
+          <button
+            onClick={handleManageSubscription}
+            disabled={portalLoading || processingPackageId}
+            className="inline-flex items-center gap-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {portalLoading ? (
+              <>
+                <Spinner /> Opening Portal...
+              </>
+            ) : (
+              'Manage Subscription'
+            )}
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {packages.map((pkg) => (
@@ -133,14 +184,14 @@ function PackageSelection({ role, onPackageSelected }) {
 
                 <button
                   onClick={() => handleSelectPackage(pkg)}
-                  disabled={processing}
+                  disabled={Boolean(processingPackageId)}
                   className={`w-full py-2 px-4 rounded-md font-medium transition-colors ${
                     pkg.popular
                       ? 'bg-blue-600 hover:bg-blue-700 text-white'
                       : 'bg-gray-100 hover:bg-gray-200 text-gray-900'
                   } disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
                 >
-                  {processing && selectedPackage?.id === pkg.id ? (
+                  {processingPackageId === pkg.id ? (
                     <>
                       <Spinner /> Processing...
                     </>
@@ -156,6 +207,9 @@ function PackageSelection({ role, onPackageSelected }) {
         <div className="mt-8 text-center text-sm text-gray-500">
           <p>All plans are set to $1 for testing purposes.</p>
           <p>You can test the subscription flow without any charges.</p>
+          <p className="mt-2">
+            <a href="/" className="text-blue-600 hover:text-blue-800 underline">Back to Dashboard</a>
+          </p>
         </div>
       </div>
     </div>

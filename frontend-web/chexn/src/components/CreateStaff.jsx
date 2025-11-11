@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Spinner from './Spinner.jsx';
 import apiClient from '../apiClient.js';
 import InfoTooltip from './InfoTooltip.jsx';
+import BulkImport from './BulkImport.jsx';
 
 function CreateStaff({ onCreated }) {
   const [email, setEmail] = useState('');
@@ -10,6 +11,7 @@ function CreateStaff({ onCreated }) {
   const [lastName, setLastName] = useState('');
   const [role, setRole] = useState('teacher');
   const [message, setMessage] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -49,6 +51,31 @@ function CreateStaff({ onCreated }) {
         <h3 className="text-lg font-semibold text-gray-900">Create Staff Account</h3>
         <InfoTooltip description="Add counselors, teachers, or social workers so they can manage student ChexNs." />
       </div>
+      <div className="mt-3 mb-4">
+        <button
+          onClick={() => setShowImport(!showImport)}
+          type="button"
+          className="w-full rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-2 font-medium transition-colors"
+        >
+          {showImport ? '← Single Entry' : '📥 Bulk Import Staff'}
+        </button>
+      </div>
+
+      {showImport ? (
+        <BulkImport
+          endpoint="/admin/bulk-create-staff"
+          onImportComplete={onCreated}
+          userType="staff"
+          maxUsers={100}
+          showRoleField={true}
+          defaultRole="teacher"
+          roleOptions={[
+            { value: 'teacher', label: 'Teacher' },
+            { value: 'counselor', label: 'Counselor' },
+            { value: 'social-worker', label: 'Social Worker' }
+          ]}
+        />
+      ) : (
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1 md:col-span-2">
           <label className="block text-sm text-gray-600">Email</label>
@@ -80,6 +107,7 @@ function CreateStaff({ onCreated }) {
           </button>
         </div>
       </form>
+      )}
       {message && <p className="mt-3 text-sm text-gray-500">{message}</p>}
     </div>
   );

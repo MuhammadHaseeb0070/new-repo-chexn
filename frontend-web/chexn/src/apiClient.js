@@ -38,5 +38,41 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
+// Response interceptor: on 401 or id-token-expired, refresh token once and retry
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const status = error?.response?.status;
+    const message = error?.response?.data?.error || error?.response?.data?.message || '';
+    const originalRequest = error.config;
+
+    // Avoid infinite loops by marking retried requests
+    if (status === 401 || message.includes('id-token-expired')) {
+      if (!originalRequest || originalRequest._retry) {
+        return Promise.reject(error);
+      }
+      originalRequest._retry = true;
+
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          return Promise.reject(error);
+        }
+        // Force refresh token and update cache
+        const freshToken = await currentUser.getIdToken(true);
+        cachedToken = freshToken;
+        cachedUid = currentUser.uid;
+        tokenExpiresAt = Date.now() + 55 * 60 * 1000;
+        originalRequest.headers.Authorization = `Bearer ${freshToken}`;
+        return apiClient(originalRequest);
+      } catch (refreshErr) {
+        return Promise.reject(refreshErr);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export default apiClient;
 
