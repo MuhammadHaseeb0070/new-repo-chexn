@@ -3,8 +3,8 @@ const router = express.Router();
 const { db, admin } = require('../config/firebase'); // We need 'admin'
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
-const { checkResourceLimit } = require('../middleware/subscriptionMiddleware');
-const { updateUsage, refreshUsage, checkLimit } = require('../utils/usageTracker');
+const { checkLimit } = require('../middleware/subscriptionMiddleware');
+const { updateUsage, refreshUsage, checkLimit: checkLimitUtil } = require('../utils/usageTracker');
 // We don't need humanReadableId, that was a mistake in my old code.
 
 // GET /my-students - Copy from teacherRoutes.js
@@ -161,21 +161,14 @@ router.post('/checkins/:studentId/mark-read', authMiddleware, async (req, res) =
 });
 
 // POST /create-student - (This was missing)
-router.post('/create-student', authMiddleware, checkResourceLimit('student'), async (req, res) => {
+router.post('/create-student', authMiddleware, checkLimit('students'), async (req, res) => {
   try {
     // Security Check: Verify the user is a staff member
-    const staffRef = db.collection('users').doc(req.user.uid);
-    const staffDoc = await staffRef.get();
-    const staffData = staffDoc.data() || {};
-    const staffRole = staffData.role;
-    const creatorId = req.user.uid;
+    const { billingOwnerId, organizationId, uid: creatorId, role: staffRole } = req.creator;
 
-    if (!staffDoc.exists || (staffRole !== 'teacher' && staffRole !== 'counselor' && staffRole !== 'social-worker')) {
+    if (!staffRole || (staffRole !== 'teacher' && staffRole !== 'counselor' && staffRole !== 'social-worker')) {
       return res.status(403).json({ error: 'You are not authorized for this action.' });
     }
-
-    // If authorized, get data
-    const organizationId = staffData.organizationId;
     const { email, password, firstName, lastName, phoneNumber } = req.body;
 
     // Create the user in Firebase Auth (with emailVerified: true)
@@ -195,7 +188,8 @@ router.post('/create-student', authMiddleware, checkResourceLimit('student'), as
       role: 'student',
       organizationId: organizationId,
       createdAt: new Date(),
-      creatorId: creatorId
+      creatorId: creatorId,
+      billingOwnerId: billingOwnerId
     };
     
     // Add phoneNumber if provided (future-proof for mobile/SMS)
@@ -214,8 +208,8 @@ router.post('/create-student', authMiddleware, checkResourceLimit('student'), as
       createdAt: new Date()
     });
 
-    const adminId = staffData.creatorId;
-    const staffName = [staffData.firstName, staffData.lastName].filter(Boolean).join(' ') || staffData.email || 'Staff';
+    const adminId = req.creator.creatorId;
+    const staffName = [req.creator.firstName, req.creator.lastName].filter(Boolean).join(' ') || req.creator.email || 'Staff';
     try {
       if (adminId) {
         await updateUsage(adminId, `student:${creatorId}`, 1, { staffName });
@@ -255,6 +249,7 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
     }
 
     const organizationId = staffData.organizationId;
+    const billingOwnerId = staffData.billingOwnerId;
     const adminId = staffData.creatorId;
     const { users, options = {} } = req.body;
 
@@ -278,8 +273,8 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'emailDomain is required when generateEmails is true' });
     }
 
-    if (adminId) {
-      const limitCheck = await checkLimit(req.user.uid, 'student', users.length);
+    if (billingOwnerId) {
+      const limitCheck = await checkLimitUtil(billingOwnerId, 'student', users.length, req.user.uid);
       if (!limitCheck.allowed) {
         return res.status(403).json({
           error: 'Limit exceeded',
@@ -321,20 +316,6 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
     // Track generated emails to avoid duplicates in batch
     const generatedEmails = new Set();
     const emailCounts = new Map(); // Track counts for suffix generation
-
-    // Check limits before processing
-    if (adminId) {
-      const limitCheck = await checkLimit(req.user.uid, 'student', users.length);
-      if (!limitCheck.allowed) {
-        return res.status(403).json({
-          error: 'Limit exceeded',
-          message: limitCheck.reason || 'You have reached your plan limit.',
-          current: limitCheck.current,
-          limit: limitCheck.limit,
-          requested: limitCheck.requested || users.length,
-        });
-      }
-    }
 
     // Process users
     for (let i = 0; i < users.length; i++) {
@@ -451,7 +432,8 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
           role: 'student',
           organizationId: organizationId,
           createdAt: new Date(),
-          creatorId: creatorId
+          creatorId: creatorId,
+          billingOwnerId: billingOwnerId
         };
 
         if (normalizedPhone) {

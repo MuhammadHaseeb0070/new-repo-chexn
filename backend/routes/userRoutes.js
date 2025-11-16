@@ -52,7 +52,7 @@ router.post("/create", authMiddleware, async (req, res) => {
     let newUserData;
 
     if (role === "parent") {
-      newUserData = { ...commonData, role: "parent" };
+      newUserData = { ...commonData, role: "parent", billingOwnerId: uid };
     } else if (role === "school") {
       // 'school' from frontend becomes 'school-admin' in backend
       const organizationId = db.collection("organizations").doc().id;
@@ -66,6 +66,7 @@ router.post("/create", authMiddleware, async (req, res) => {
         ...commonData,
         role: "school-admin",
         organizationId: organizationId,
+        billingOwnerId: uid,
       };
     } else if (role === "district") {
       // 'district' from frontend becomes 'district-admin' in backend
@@ -80,6 +81,7 @@ router.post("/create", authMiddleware, async (req, res) => {
         ...commonData,
         role: "district-admin",
         organizationId: organizationId,
+        billingOwnerId: uid,
       };
     } else if (role === "employer") {
       // 'employer' from frontend becomes 'employer-admin' in backend
@@ -94,10 +96,11 @@ router.post("/create", authMiddleware, async (req, res) => {
         ...commonData,
         role: "employer-admin",
         organizationId: organizationId,
+        billingOwnerId: uid,
       };
     } else {
       // Default to 'parent' if role is missing or invalid
-      newUserData = { ...commonData, role: "parent" };
+      newUserData = { ...commonData, role: "parent", billingOwnerId: uid };
     }
 
     // 5. Save the new user to Firestore

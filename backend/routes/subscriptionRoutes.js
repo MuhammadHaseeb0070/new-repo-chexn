@@ -109,9 +109,29 @@ router.get('/packages/:role', authMiddleware, (req, res) => {
 router.get('/current', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.uid;
-    const subscriptionRef = db.collection('subscriptions').doc(userId);
+    
+    // Fetch the user's document from Firestore
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    // If the user doesn't exist, return a 404
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Get the billingOwnerId from the user's document
+    const user = userDoc.data() || {};
+    const billingOwnerId = user.billingOwnerId;
+    
+    // If there is no billingOwnerId, return a 500 error
+    if (!billingOwnerId) {
+      return res.status(500).json({ error: 'Billing owner ID not found' });
+    }
+    
+    // Use this billingOwnerId to fetch the subscription document
+    const subscriptionRef = db.collection('subscriptions').doc(billingOwnerId);
     const subscriptionDoc = await subscriptionRef.get();
     
+    // Return the subscription data or null just like before
     if (!subscriptionDoc.exists) {
       return res.status(200).json(null);
     }
@@ -141,6 +161,12 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
     }
     
     const userData = userDoc.data();
+    
+    // Check if user is the billing owner
+    if (userData.uid !== userData.billingOwnerId) {
+      return res.status(403).json({ error: 'You are not the billing owner for this organization.' });
+    }
+    
     const backendRole = packages.mapRoleToBackend(role);
     const pkg = packages.getPackage(backendRole, packageId);
     
@@ -229,6 +255,12 @@ router.post('/create-portal-session', authMiddleware, async (req, res) => {
     }
     
     const userData = userDoc.data();
+    
+    // Check if user is the billing owner
+    if (userData.uid !== userData.billingOwnerId) {
+      return res.status(403).json({ error: 'You are not the billing owner for this organization.' });
+    }
+    
     let customerId = userData.stripeCustomerId;
     
     // Fallback: If customer ID not in user doc, try to get it from subscription

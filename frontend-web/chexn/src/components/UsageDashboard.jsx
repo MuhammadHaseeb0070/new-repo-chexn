@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import apiClient from '../apiClient.js';
 import Spinner from './Spinner.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
 
-function UsageDashboard({ subscription, userRole }) {
+function UsageDashboard({ subscription, userRole, isBillingOwner }) {
   const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -51,8 +51,34 @@ function UsageDashboard({ subscription, userRole }) {
     };
   };
 
+  const displayLimits = useMemo(() => {
+    if (!subscription) return {};
+
+    const { limits } = subscription;
+    const managedSchoolRoles = ['school-admin', 'teacher', 'counselor', 'social-worker'];
+
+    if (isBillingOwner) {
+      // This is a Payer (Parent, Standalone Admin, District, Employer)
+      // They see the direct limits from their plan.
+      return limits;
+    } else if (managedSchoolRoles.includes(userRole)) {
+      // This is a Managed Staff/Admin under a District
+      // We map their limits to the district's "PerSchool" limits
+      return {
+        staff: limits.staffPerSchool,
+        students: limits.studentsPerStaff,
+      };
+    } else {
+      // This is a Managed Staff under an Employer
+      // We map their limits to the employer's "PerStaff" limits
+      return {
+        employees: limits.employeesPerStaff,
+      };
+    }
+  }, [subscription, userRole, isBillingOwner]);
+
   const renderUsageBar = (label, current, limit, resourceType) => {
-    if (limit === undefined || limit === null) return null;
+    if (typeof limit !== 'number' || limit === undefined || limit === null) return null;
     
     const percentage = getUsagePercentage(current || 0, limit);
     const color = getUsageColor(percentage);
@@ -103,23 +129,25 @@ function UsageDashboard({ subscription, userRole }) {
     );
   }
 
-  const limits = subscription.limits || {};
   const usageData = usage?.usage || {};
 
   return (
     <div className="space-y-4">
       {/* Parent - Children */}
-      {userRole === 'parent' && limits.children !== undefined && renderUsageBar('Children', usageData.children, limits.children, 'children')}
+      {renderUsageBar('Children', usageData.children, displayLimits.children, 'children')}
 
-      {/* School Admin - Staff */}
-      {userRole === 'school-admin' && limits.staff !== undefined && renderUsageBar('Staff Members', usageData.staff, limits.staff, 'staff')}
+      {/* Schools (District Admin only) */}
+      {renderUsageBar('Schools', usageData.schools, displayLimits.schools, 'schools')}
 
-      {/* School Admin - Students per Staff */}
-      {userRole === 'school-admin' && limits.studentsPerStaff !== undefined && (
+      {/* Staff (School Admin, District Admin, Employer Admin) */}
+      {renderUsageBar('Staff Members', usageData.staff, displayLimits.staff, 'staff')}
+
+      {/* Students per Staff (School Admin, Teachers, Counselors, Social Workers) */}
+      {typeof displayLimits.students === 'number' && (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-700">Students per Staff</span>
-            <span className="text-sm text-gray-600">Limit: {limits.studentsPerStaff} per staff</span>
+            <span className="text-sm text-gray-600">Limit: {displayLimits.students} per staff</span>
           </div>
           {usageData.studentsByStaff && Object.keys(usageData.studentsByStaff).length > 0 ? (
             <div className="space-y-2">
@@ -128,7 +156,7 @@ function UsageDashboard({ subscription, userRole }) {
                 const displayName = name || `Staff ${staffId.slice(0, 8)}...`;
                 return (
                   <div key={staffId} className="text-xs text-gray-600">
-                    {displayName}: {count} / {limits.studentsPerStaff}
+                    {displayName}: {count} / {displayLimits.students}
                   </div>
                 );
               })}
@@ -139,21 +167,18 @@ function UsageDashboard({ subscription, userRole }) {
         </div>
       )}
 
-      {/* District Admin - Schools */}
-      {userRole === 'district-admin' && limits.schools !== undefined && renderUsageBar('Schools', usageData.schools, limits.schools, 'schools')}
-
-      {/* District Admin - Staff per School */}
-      {userRole === 'district-admin' && limits.staffPerSchool !== undefined && (
+      {/* Staff per School (District Admin only) */}
+      {typeof displayLimits.staffPerSchool === 'number' && (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-700">Staff per School</span>
-            <span className="text-sm text-gray-600">Limit: {limits.staffPerSchool} per school</span>
+            <span className="text-sm text-gray-600">Limit: {displayLimits.staffPerSchool} per school</span>
           </div>
           {usageData.staffPerSchool && Object.keys(usageData.staffPerSchool).length > 0 ? (
             <div className="space-y-2">
               {Object.entries(usageData.staffPerSchool).map(([schoolId, count]) => (
                 <div key={schoolId} className="text-xs text-gray-600">
-                  School {schoolId.slice(0, 8)}...: {count} / {limits.staffPerSchool}
+                  School {schoolId.slice(0, 8)}...: {count} / {displayLimits.staffPerSchool}
                 </div>
               ))}
             </div>
@@ -163,15 +188,12 @@ function UsageDashboard({ subscription, userRole }) {
         </div>
       )}
 
-      {/* Employer Admin - Staff */}
-      {userRole === 'employer-admin' && limits.staff !== undefined && renderUsageBar('Staff Members', usageData.staff, limits.staff, 'staff')}
-
-      {/* Employer Admin - Employees per Staff */}
-      {userRole === 'employer-admin' && limits.employeesPerStaff !== undefined && (
+      {/* Employees per Staff (Employer Admin, Employer Staff) */}
+      {typeof displayLimits.employees === 'number' && (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-700">Employees per Staff</span>
-            <span className="text-sm text-gray-600">Limit: {limits.employeesPerStaff} per staff</span>
+            <span className="text-sm text-gray-600">Limit: {displayLimits.employees} per staff</span>
           </div>
           {usageData.employeesByStaff && Object.keys(usageData.employeesByStaff).length > 0 ? (
             <div className="space-y-2">
@@ -180,7 +202,7 @@ function UsageDashboard({ subscription, userRole }) {
                 const displayName = name || `Staff ${staffId.slice(0, 8)}...`;
                 return (
                   <div key={staffId} className="text-xs text-gray-600">
-                    {displayName}: {count} / {limits.employeesPerStaff}
+                    {displayName}: {count} / {displayLimits.employees}
                   </div>
                 );
               })}

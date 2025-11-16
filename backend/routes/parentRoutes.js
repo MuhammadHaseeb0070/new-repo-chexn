@@ -2,8 +2,8 @@ const express = require("express");
 const router = express.Router();
 const { admin, db } = require("../config/firebase");
 const authMiddleware = require("../middleware/authMiddleware");
-const { requireSubscription, checkResourceLimit } = require("../middleware/subscriptionMiddleware");
-const { updateUsage, checkLimit, refreshUsage } = require("../utils/usageTracker");
+const { checkLimit } = require("../middleware/subscriptionMiddleware");
+const { getUsage } = require("../utils/usageTracker");
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require("../utils/userHelpers");
 
 // GET /my-students - list children linked to the logged-in parent
@@ -80,17 +80,16 @@ router.get('/unread-summary', authMiddleware, async (req, res) => {
   }
 });
 
-router.post("/create-child", authMiddleware, requireSubscription, checkResourceLimit('child'), async (req, res) => {
+router.post("/create-child", authMiddleware, checkLimit('children'), async (req, res) => {
   try {
     // Security Check: Verify the user is a parent
-    const parentRef = db.collection("users").doc(req.user.uid);
-    const parentDoc = await parentRef.get();
-
-    if (!parentDoc.exists || parentDoc.data().role !== "parent") {
+    const { billingOwnerId, creator } = req;
+    
+    if (!creator || creator.role !== "parent") {
       return res.status(403).json({ error: "Not authorized" });
     }
-
-    const parentId = parentDoc.id;
+    
+    const parentId = req.user.uid;
     const linkRef = db.collection("parentStudentLinks").doc(parentId);
 
     // Get Data: Get email, password, firstName, lastName, phoneNumber from req.body
@@ -112,6 +111,7 @@ router.post("/create-child", authMiddleware, requireSubscription, checkResourceL
       lastName,
       role: "student",
       creatorId: parentId, // Store creator for management
+      billingOwnerId: billingOwnerId, // (formerly parentDoc.data().billingOwnerId)
     };
     
     // Add phoneNumber if provided (future-proof for mobile/SMS)
@@ -167,7 +167,7 @@ router.post("/create-child", authMiddleware, requireSubscription, checkResourceL
 });
 
 // POST /bulk-create-children - Bulk import children
-router.post("/bulk-create-children", authMiddleware, requireSubscription, async (req, res) => {
+router.post("/bulk-create-children", authMiddleware, async (req, res) => {
   try {
     // Security Check: Verify the user is a parent
     const parentRef = db.collection("users").doc(req.user.uid);
@@ -178,6 +178,7 @@ router.post("/bulk-create-children", authMiddleware, requireSubscription, async 
     }
 
     const parentId = parentDoc.id;
+    const billingOwnerId = parentDoc.data().billingOwnerId;
     const { users, options = {} } = req.body;
 
     if (!Array.isArray(users) || users.length === 0) {
@@ -188,15 +189,30 @@ router.post("/bulk-create-children", authMiddleware, requireSubscription, async 
       return res.status(400).json({ error: "Maximum 100 users per import" });
     }
 
-    // Enforce plan limit
-    const limitCheck = await checkLimit(parentId, 'child', users.length);
-    if (!limitCheck.allowed) {
+    if (!billingOwnerId) {
+      return res.status(403).json({ error: 'Subscription required' });
+    }
+
+    // Enforce plan limit - check subscription and usage
+    const subscriptionDoc = await db.collection('subscriptions').doc(billingOwnerId).get();
+    if (!subscriptionDoc.exists || subscriptionDoc.data().status !== 'active') {
+      return res.status(403).json({ error: 'Subscription is not active.' });
+    }
+    
+    const subscription = subscriptionDoc.data();
+    const limits = subscription.limits || {};
+    const childrenLimit = limits.children || 0;
+    
+    const usage = await getUsage(billingOwnerId);
+    const currentChildren = usage.children || 0;
+    
+    if (currentChildren + users.length > childrenLimit) {
       return res.status(403).json({
         error: 'Limit exceeded',
-        message: limitCheck.reason || 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
-        current: limitCheck.current,
-        limit: limitCheck.limit,
-        requested: limitCheck.requested || users.length,
+        message: 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+        current: currentChildren,
+        limit: childrenLimit,
+        requested: users.length,
         canUpgrade: true,
       });
     }
@@ -345,6 +361,7 @@ router.post("/bulk-create-children", authMiddleware, requireSubscription, async 
           lastName,
           role: 'student',
           creatorId: parentId,
+          billingOwnerId: billingOwnerId,
           createdAt: new Date()
         };
 
@@ -375,11 +392,7 @@ router.post("/bulk-create-children", authMiddleware, requireSubscription, async 
           password: generatePasswords ? password : undefined
         });
 
-        try {
-          await updateUsage(parentId, 'child', 1);
-        } catch (usageError) {
-          console.error('Error updating usage for child creation:', usageError);
-        }
+        // Usage is tracked automatically via getUsage which queries the database
 
       } catch (error) {
         const errorEmail = users[i].email || "N/A";

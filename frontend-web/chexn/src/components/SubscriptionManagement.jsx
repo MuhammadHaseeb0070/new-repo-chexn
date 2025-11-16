@@ -4,11 +4,43 @@ import Spinner from './Spinner.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
 
-function SubscriptionManagement({ userRole }) {
+function SubscriptionManagement({ userRole, isBillingOwner }) {
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openingPortal, setOpeningPortal] = useState(false);
   const [error, setError] = useState('');
+
+  const formatDate = (value, options = {}) => {
+    if (!value) return 'N/A';
+    let date;
+    try {
+      if (typeof value.toDate === 'function') {
+        date = value.toDate();
+      } else if (value.seconds) {
+        date = new Date(value.seconds * 1000);
+      } else if (value._seconds) {
+        date = new Date(value._seconds * 1000);
+      } else {
+        date = new Date(value);
+      }
+    } catch {
+      date = null;
+    }
+    if (!date || Number.isNaN(date.getTime())) {
+      return 'N/A';
+    }
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      ...options,
+    });
+  };
+
+  const formattedRenewalDate = useMemo(
+    () => (subscription?.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : null),
+    [subscription]
+  );
 
   // Map frontend role to backend role for API calls
   const getBackendRole = (role) => {
@@ -92,38 +124,6 @@ function SubscriptionManagement({ userRole }) {
     }
   };
 
-  const formatDate = (value, options = {}) => {
-    if (!value) return 'N/A';
-    let date;
-    try {
-      if (typeof value.toDate === 'function') {
-        date = value.toDate();
-      } else if (value.seconds) {
-        date = new Date(value.seconds * 1000);
-      } else if (value._seconds) {
-        date = new Date(value._seconds * 1000);
-      } else {
-        date = new Date(value);
-      }
-    } catch {
-      date = null;
-    }
-    if (!date || Number.isNaN(date.getTime())) {
-      return 'N/A';
-    }
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      ...options,
-    });
-  };
-
-  const formattedRenewalDate = useMemo(
-    () => (subscription?.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : null),
-    [subscription]
-  );
-
   return (
     <div className="space-y-4">
       {/* Subscription Details */}
@@ -187,7 +187,7 @@ function SubscriptionManagement({ userRole }) {
       </div>
 
       {/* Usage Dashboard */}
-      <UsageDashboard subscription={subscription} userRole={userRole} />
+      <UsageDashboard subscription={subscription} userRole={userRole} isBillingOwner={isBillingOwner} />
     </div>
   );
 }

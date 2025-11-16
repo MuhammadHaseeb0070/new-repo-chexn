@@ -3,8 +3,8 @@ const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
-const { requireSubscription, checkResourceLimit } = require('../middleware/subscriptionMiddleware');
-const { updateUsage, refreshUsage, checkLimit } = require('../utils/usageTracker');
+const { checkLimit } = require('../middleware/subscriptionMiddleware');
+const { updateUsage, refreshUsage, checkLimit: checkLimitUtil } = require('../utils/usageTracker');
 
 router.get('/my-staff', authMiddleware, async (req, res) => {
   try {
@@ -35,19 +35,14 @@ router.get('/my-staff', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/create-staff', authMiddleware, requireSubscription, checkResourceLimit('staff'), async (req, res) => {
+router.post('/create-staff', authMiddleware, checkLimit('staff'), async (req, res) => {
   try {
     // Security Check: Verify the user is an employer-admin
-    const employerAdminRef = db.collection('users').doc(req.user.uid);
-    const adminDoc = await employerAdminRef.get();
+    const { billingOwnerId, organizationId, creator } = req;
 
-    if (!adminDoc.exists || adminDoc.data().role !== 'employer-admin') {
+    if (!creator || creator.role !== 'employer-admin') {
       return res.status(403).json({ error: 'Not authorized' });
     }
-
-    // Get Data
-    // Get the organizationId from adminDoc.data().organizationId
-    const organizationId = adminDoc.data().organizationId;
     
     // Get email, password, firstName, lastName from req.body
     // Get role from req.body (e.g., 'hr', 'supervisor')
@@ -70,8 +65,9 @@ router.post('/create-staff', authMiddleware, requireSubscription, checkResourceL
       firstName,
       lastName,
       role,
-      organizationId,
-      creatorId: employerAdminId // Store creator for management
+      organizationId: organizationId,
+      creatorId: employerAdminId, // Store creator for management
+      billingOwnerId: billingOwnerId
     });
     
     // Store password for creator to view later
@@ -124,6 +120,7 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
     }
 
     const organizationId = adminDoc.data().organizationId;
+    const billingOwnerId = adminDoc.data().billingOwnerId;
     const employerAdminId = req.user.uid;
     const { users, options = {} } = req.body;
 
@@ -147,6 +144,10 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Email domain is required when generating emails' });
     }
 
+    if (!billingOwnerId) {
+      return res.status(403).json({ error: 'Subscription required' });
+    }
+
     const results = {
       created: 0,
       skipped: 0,
@@ -156,7 +157,7 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
       createdUsers: []
     };
 
-    const limitCheck = await checkLimit(employerAdminId, 'staff', users.length);
+    const limitCheck = await checkLimitUtil(billingOwnerId, 'staff', users.length);
     if (!limitCheck.allowed) {
       return res.status(403).json({
         error: 'Limit exceeded',
@@ -287,7 +288,8 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
             role: staffRole,
             organizationId,
             createdAt: new Date(),
-            creatorId: employerAdminId // Store creator for management
+            creatorId: employerAdminId, // Store creator for management
+            billingOwnerId: billingOwnerId
           };
 
           if (normalizedPhone) {

@@ -5,7 +5,7 @@ import InfoTooltip from './InfoTooltip.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
 import CollapsiblePanel from './CollapsiblePanel.jsx';
 
-function SubscriptionModal({ isOpen, onClose, userRole }) {
+function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openingPortal, setOpeningPortal] = useState(false);
@@ -393,7 +393,7 @@ function SubscriptionModal({ isOpen, onClose, userRole }) {
                 defaultOpen={false}
                 description="Track how many resources you've created versus your plan limits. Upgrade if you need more capacity."
               >
-                <UsageDashboard subscription={subscription} userRole={userRole} />
+                <UsageDashboard subscription={subscription} userRole={userRole} isBillingOwner={isBillingOwner} />
               </CollapsiblePanel>
             </>
           )}

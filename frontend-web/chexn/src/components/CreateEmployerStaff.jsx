@@ -39,7 +39,11 @@ function CreateEmployerStaff({ onCreated }) {
       setRole('supervisor');
       if (onCreated) onCreated();
     } catch (error) {
-      setMessage(error.response?.data?.error || 'An error occurred.');
+      if (error.response?.status === 403 && error.response?.data?.error === 'Limit Reached') {
+        setMessage('You have reached your limit. Please contact your administrator to upgrade your plan.');
+      } else {
+        setMessage(error.response?.data?.error || 'An error occurred.');
+      }
     } finally {
       setIsSubmitting(false);
     }

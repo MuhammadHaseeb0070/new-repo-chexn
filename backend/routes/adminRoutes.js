@@ -3,7 +3,7 @@ const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
-const { requireSubscription, checkResourceLimit } = require('../middleware/subscriptionMiddleware');
+const { checkLimit } = require('../middleware/subscriptionMiddleware');
 const { updateUsage, refreshUsage } = require('../utils/usageTracker');
 
 router.get('/my-staff', authMiddleware, async (req, res) => {
@@ -52,18 +52,14 @@ router.get('/my-staff', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/create-staff', authMiddleware, requireSubscription, checkResourceLimit('staff'), async (req, res) => {
+router.post('/create-staff', authMiddleware, checkLimit('staff'), async (req, res) => {
   try {
     // Security Check: Verify the user is an admin
-    const adminRef = db.collection('users').doc(req.user.uid);
-    const adminDoc = await adminRef.get();
+    const { billingOwnerId, organizationId, creator } = req;
 
-    if (!adminDoc.exists || adminDoc.data().role !== 'school-admin') {
+    if (!creator || creator.role !== 'school-admin') {
       return res.status(403).json({ error: 'You are not authorized for this action.' });
     }
-
-    // Get the admin's organizationId
-    const organizationId = adminDoc.data().organizationId;
 
     // Get data from request body
     const { email, password, firstName, lastName, role } = req.body;
@@ -85,8 +81,9 @@ router.post('/create-staff', authMiddleware, requireSubscription, checkResourceL
       firstName,
       lastName,
       role,
-      organizationId,
-      creatorId: schoolAdminId // Store creator for management
+      organizationId: organizationId,
+      creatorId: schoolAdminId, // Store creator for management
+      billingOwnerId: billingOwnerId
     });
     
     // Store password for creator to view later
@@ -159,6 +156,7 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
     }
 
     const organizationId = adminDoc.data().organizationId;
+    const billingOwnerId = adminDoc.data().billingOwnerId;
     const { users, options = {} } = req.body;
 
     if (!Array.isArray(users) || users.length === 0) {
@@ -180,8 +178,12 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'emailDomain is required when generateEmails is true' });
     }
 
+    if (!billingOwnerId) {
+      return res.status(403).json({ error: 'Subscription required' });
+    }
+
     // Enforce plan limit (staff)
-    const limitCheck = await require('../utils/usageTracker').checkLimit(schoolAdminId, 'staff', users.length);
+    const limitCheck = await require('../utils/usageTracker').checkLimit(billingOwnerId, 'staff', users.length);
     if (!limitCheck.allowed) {
       return res.status(403).json({
         error: 'Limit exceeded',

@@ -318,9 +318,9 @@ function getPackagesForRole(role) {
 function mapRoleToBackend(role) {
   const roleMap = {
     'parent': 'parent',
-    'school': 'schoolAdmin',
-    'district': 'districtAdmin',
-    'employer': 'employerAdmin'
+    'school-admin': 'schoolAdmin',
+    'district-admin': 'districtAdmin',
+    'employer-admin': 'employerAdmin'
   };
   return roleMap[role] || role;
 }

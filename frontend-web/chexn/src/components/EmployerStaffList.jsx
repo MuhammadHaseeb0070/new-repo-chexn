@@ -9,6 +9,7 @@ function EmployerStaffList({ refreshToken }) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [isBillingOwner, setIsBillingOwner] = useState(false);
 
   const fetchStaff = async () => {
     try {
@@ -25,6 +26,18 @@ function EmployerStaffList({ refreshToken }) {
   useEffect(() => {
     fetchStaff();
   }, [refreshToken]);
+
+  // Fetch user profile to determine isBillingOwner
+  useEffect(() => {
+    apiClient.get('/users/me')
+      .then(response => {
+        const profile = response.data;
+        setIsBillingOwner(profile.uid === profile.billingOwnerId);
+      })
+      .catch(err => {
+        console.error('Failed to fetch user profile:', err);
+      });
+  }, []);
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
@@ -77,6 +90,7 @@ function EmployerStaffList({ refreshToken }) {
         isOpen={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
         userRole="employer-admin"
+        isBillingOwner={isBillingOwner}
       />
     </div>
   );

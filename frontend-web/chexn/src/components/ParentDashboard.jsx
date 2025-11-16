@@ -22,6 +22,7 @@ function ParentDashboard({ refreshToken }) {
   const [unreadByStudentId, setUnreadByStudentId] = useState({});
   const [filterCategory, setFilterCategory] = useState('');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [isBillingOwner, setIsBillingOwner] = useState(false);
 
   const fetchMyStudents = async () => {
     try {
@@ -37,6 +38,18 @@ function ParentDashboard({ refreshToken }) {
   useEffect(() => {
     fetchMyStudents();
   }, [refreshToken]);
+
+  // Fetch user profile to determine isBillingOwner
+  useEffect(() => {
+    apiClient.get('/users/me')
+      .then(response => {
+        const profile = response.data;
+        setIsBillingOwner(profile.uid === profile.billingOwnerId);
+      })
+      .catch(err => {
+        console.error('Failed to fetch user profile:', err);
+      });
+  }, []);
 
   // After loading students, fetch unread counts (non-blocking, load after UI renders)
   useEffect(() => {
@@ -290,6 +303,7 @@ function ParentDashboard({ refreshToken }) {
           isOpen={showSubscriptionModal}
           onClose={() => setShowSubscriptionModal(false)}
           userRole="parent"
+          isBillingOwner={isBillingOwner}
         />
       </div>
     </div>

@@ -10,6 +10,7 @@ function InstituteList() {
   const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [isBillingOwner, setIsBillingOwner] = useState(false);
 
   const reload = async () => {
     try {
@@ -39,6 +40,18 @@ function InstituteList() {
     };
     doLoad();
     return () => { isMounted = false; };
+  }, []);
+
+  // Fetch user profile to determine isBillingOwner
+  useEffect(() => {
+    apiClient.get('/users/me')
+      .then(response => {
+        const profile = response.data;
+        setIsBillingOwner(profile.uid === profile.billingOwnerId);
+      })
+      .catch(err => {
+        console.error('Failed to fetch user profile:', err);
+      });
   }, []);
 
   return (
@@ -87,6 +100,7 @@ function InstituteList() {
         isOpen={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
         userRole="district-admin"
+        isBillingOwner={isBillingOwner}
       />
     </div>
   );

@@ -38,8 +38,12 @@ function CreateEmployee({ onCreated }) {
       setLastName('');
       if (onCreated) onCreated();
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'An error occurred.';
-      setMessage(errorMessage);
+      if (error.response?.status === 403 && error.response?.data?.error === 'Limit Reached') {
+        setMessage('You have reached your limit. Please contact your administrator to upgrade your plan.');
+      } else {
+        const errorMessage = error.response?.data?.message || error.response?.data?.error || 'An error occurred.';
+        setMessage(errorMessage);
+      }
       setShowUpgrade(Boolean(error.response?.data?.canUpgrade));
     } finally {
       setIsSubmitting(false);

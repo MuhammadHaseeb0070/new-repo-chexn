@@ -9,3 +9,5 @@ export const firebaseConfig = {
 };
 
 export const API_URL = "http://localhost:5000/api";
+
+export const STRIPE_PUBLIC_KEY = "YOUR_PK_TEST_KEY_HERE";

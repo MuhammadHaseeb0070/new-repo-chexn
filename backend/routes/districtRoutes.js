@@ -2,8 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
-const { requireSubscription, checkResourceLimit } = require('../middleware/subscriptionMiddleware');
-const { updateUsage } = require('../utils/usageTracker');
+const { checkLimit } = require('../middleware/subscriptionMiddleware');
+const { getUsage } = require('../utils/usageTracker');
 
 router.get('/my-institutes', authMiddleware, async (req, res) => {
   try {
@@ -20,19 +20,14 @@ router.get('/my-institutes', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/create-institute', authMiddleware, requireSubscription, checkResourceLimit('school'), async (req, res) => {
+router.post('/create-institute', authMiddleware, checkLimit('schools'), async (req, res) => {
   try {
     // Security Check: Verify the user is a district-admin
-    const districtAdminRef = db.collection('users').doc(req.user.uid);
-    const adminDoc = await districtAdminRef.get();
+    const { billingOwnerId, organizationId: districtOrgId, creator } = req;
 
-    if (!adminDoc.exists || adminDoc.data().role !== 'district-admin') {
+    if (!creator || creator.role !== 'district-admin') {
       return res.status(403).json({ error: 'Not authorized' });
     }
-
-    // Get Data
-    // Get the district's organizationId from adminDoc.data().organizationId
-    const districtOrgId = adminDoc.data().organizationId;
     
     // Get email, password, firstName, lastName, instituteName, instituteType from req.body
     const { email, password, firstName, lastName, instituteName, instituteType } = req.body;
@@ -42,7 +37,8 @@ router.post('/create-institute', authMiddleware, requireSubscription, checkResou
     await newOrgRef.set({
       name: instituteName,
       type: instituteType,
-      parentDistrictId: adminDoc.id
+      parentDistrictId: req.user.uid,
+      billingOwnerId: billingOwnerId
     });
     const newSchoolOrgId = newOrgRef.id;
 
@@ -61,7 +57,8 @@ router.post('/create-institute', authMiddleware, requireSubscription, checkResou
       firstName,
       lastName,
       role: 'school-admin',
-      organizationId: newSchoolOrgId
+      organizationId: newSchoolOrgId,
+      billingOwnerId: billingOwnerId
     });
     // Store password for creator to view later
     try {
@@ -75,11 +72,7 @@ router.post('/create-institute', authMiddleware, requireSubscription, checkResou
       createdAt: new Date()
     });
 
-    try {
-      await updateUsage(req.user.uid, 'school', 1);
-    } catch (usageError) {
-      console.error('Error updating usage for institute creation:', usageError);
-    }
+    // Usage is tracked automatically via getUsage which queries the database
 
     // Send a 201 (Created) response with the new admin's data
     res.status(201).json({
@@ -104,7 +97,7 @@ router.post('/create-institute', authMiddleware, requireSubscription, checkResou
   }
 });
 
-router.post('/bulk-create-institutes', authMiddleware, requireSubscription, checkResourceLimit('school'), async (req, res) => {
+router.post('/bulk-create-institutes', authMiddleware, async (req, res) => {
   try {
     const districtAdminId = req.user.uid;
     const adminDoc = await db.collection('users').doc(districtAdminId).get();
@@ -112,6 +105,7 @@ router.post('/bulk-create-institutes', authMiddleware, requireSubscription, chec
       return res.status(403).json({ error: 'Not authorized' });
     }
 
+    const billingOwnerId = adminDoc.data().billingOwnerId;
     const { users, options = {} } = req.body;
     if (!Array.isArray(users) || users.length === 0) {
       return res.status(400).json({ error: 'Users array is required and must not be empty' });
@@ -131,16 +125,30 @@ router.post('/bulk-create-institutes', authMiddleware, requireSubscription, chec
       return res.status(400).json({ error: 'emailDomain is required when generateEmails is true' });
     }
 
-    // Plan limit enforcement: schools
-    const { checkLimit } = require('../utils/usageTracker');
-    const limitCheck = await checkLimit(districtAdminId, 'school', users.length);
-    if (!limitCheck.allowed) {
+    if (!billingOwnerId) {
+      return res.status(403).json({ error: 'Subscription required' });
+    }
+
+    // Enforce plan limit - check subscription and usage
+    const subscriptionDoc = await db.collection('subscriptions').doc(billingOwnerId).get();
+    if (!subscriptionDoc.exists || subscriptionDoc.data().status !== 'active') {
+      return res.status(403).json({ error: 'Subscription is not active.' });
+    }
+    
+    const subscription = subscriptionDoc.data();
+    const limits = subscription.limits || {};
+    const schoolsLimit = limits.schools || 0;
+    
+    const usage = await getUsage(billingOwnerId);
+    const currentSchools = usage.schools || 0;
+    
+    if (currentSchools + users.length > schoolsLimit) {
       return res.status(403).json({
         error: 'Limit exceeded',
-        message: limitCheck.reason || 'You have reached your plan limit.',
-        current: limitCheck.current,
-        limit: limitCheck.limit,
-        requested: limitCheck.requested || users.length,
+        message: 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+        current: currentSchools,
+        limit: schoolsLimit,
+        requested: users.length,
         canUpgrade: true,
       });
     }
@@ -217,7 +225,12 @@ router.post('/bulk-create-institutes', authMiddleware, requireSubscription, chec
 
         // Create org
         const newOrgRef = db.collection('organizations').doc();
-        await newOrgRef.set({ name: instituteName, type: instituteType, parentDistrictId: districtAdminId });
+        await newOrgRef.set({ 
+          name: instituteName, 
+          type: instituteType, 
+          parentDistrictId: districtAdminId,
+          billingOwnerId: billingOwnerId
+        });
 
         // Create school admin auth
         const newUser = await admin.auth().createUser({ email, password, displayName: `${firstName} ${lastName}`, emailVerified: true });
@@ -230,6 +243,7 @@ router.post('/bulk-create-institutes', authMiddleware, requireSubscription, chec
           lastName,
           role: 'school-admin',
           organizationId: newOrgRef.id,
+          billingOwnerId: billingOwnerId,
           createdAt: new Date()
         });
         // Store password for creator to view later
@@ -241,8 +255,7 @@ router.post('/bulk-create-institutes', authMiddleware, requireSubscription, chec
           createdAt: new Date()
         });
 
-        // Update usage
-        try { await updateUsage(districtAdminId, 'school', 1); } catch {}
+        // Usage is tracked automatically via getUsage which queries the database
 
         results.created++;
         results.createdUsers.push({ email, firstName, lastName, instituteName });
@@ -262,7 +275,7 @@ router.post('/bulk-create-institutes', authMiddleware, requireSubscription, chec
   }
 });
 
-router.post('/create-staff', authMiddleware, requireSubscription, async (req, res) => {
+router.post('/create-staff', authMiddleware, async (req, res) => {
   // Optional: If you support creating additional school admins per district, implement here.
 });
 
@@ -475,8 +488,7 @@ router.delete('/institute/:id', authMiddleware, async (req, res) => {
     }
 
     await docRef.delete();
-    // Optionally decrement usage
-    try { await updateUsage(districtAdminId, 'school', -1); } catch {}
+    // Usage is tracked automatically via getUsage which queries the database
 
     return res.status(200).json({ success: true });
   } catch (error) {

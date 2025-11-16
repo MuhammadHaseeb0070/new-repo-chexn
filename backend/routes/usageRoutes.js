@@ -8,7 +8,22 @@ const { getUsage, refreshUsage } = require('../utils/usageTracker');
 router.get('/current', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.uid;
-    const usage = await getUsage(userId);
+    
+    // Get the logged-in user's billingOwnerId from their Firestore document
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const user = userDoc.data() || {};
+    const billingOwnerId = user.billingOwnerId;
+    
+    if (!billingOwnerId) {
+      return res.status(403).json({ error: 'No billing owner found' });
+    }
+    
+    // Call getUsage using billingOwnerId
+    const usage = await getUsage(billingOwnerId);
     res.json(usage);
   } catch (error) {
     console.error('Error fetching usage:', error);

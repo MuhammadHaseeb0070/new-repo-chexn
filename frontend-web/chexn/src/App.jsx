@@ -23,6 +23,7 @@ import InstituteList from "./components/InstituteList.jsx";
 import SchoolStaffList from "./components/SchoolStaffList.jsx";
 import EmployerStaffList from "./components/EmployerStaffList.jsx";
 import PackageSelection from "./components/PackageSelection.jsx";
+import SubscriptionManagement from "./components/SubscriptionManagement.jsx";
 
 function App() {
   const [authUser, setAuthUser] = useState(null);
@@ -38,12 +39,18 @@ function App() {
   const [parentChildrenRefreshKey, setParentChildrenRefreshKey] = useState(0);
   const [showPackageSelection, setShowPackageSelection] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [subscription, setSubscription] = useState(null);
+  const [isBillingOwner, setIsBillingOwner] = useState(false);
+  const [isSubLoading, setIsSubLoading] = useState(true);
 
   const handleSignOut = async () => {
     try {
       await signOut(auth);
       setUserProfile(null);
       setIsNewUser(false);
+      setSubscription(null);
+      setIsBillingOwner(false);
+      setIsSubLoading(true);
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -123,39 +130,24 @@ function App() {
             // They have a profile, save it
             const profile = response.data;
             setUserProfile(profile);
-            setIsNewUser(false);
             
-            // Check if user needs subscription (paying roles)
-            const payingRoles = ['parent', 'school-admin', 'district-admin', 'employer-admin'];
-            if (payingRoles.includes(profile.role)) {
-              try {
-                // Special case: school-admin may be covered by district subscription
-                if (profile.role === 'school-admin') {
-                  try {
-                    const cov = await apiClient.get('/district/coverage');
-                    if (cov?.data?.covered) {
-                      setShowPackageSelection(false);
-                      return;
-                    }
-                  } catch (e) {
-                    // ignore coverage errors; fall back to direct subscription check
-                    console.warn('Coverage check failed; falling back to direct subscription check', e?.message || e);
-                  }
-                }
-
-                const subscriptionRes = await apiClient.get('/subscriptions/current');
-                if (!subscriptionRes.data || (subscriptionRes.data.status !== 'active' && subscriptionRes.data.status !== 'trialing')) {
-                  setShowPackageSelection(true);
-                } else {
-                  setShowPackageSelection(false);
-                }
-              } catch (error) {
-                console.error('Error checking subscription:', error);
-                setShowPackageSelection(true);
-              }
-            } else {
-              setShowPackageSelection(false);
-            }
+            // Set isBillingOwner based on uid and billingOwnerId
+            setIsBillingOwner(profile.uid === profile.billingOwnerId);
+            
+            // Fetch subscription after setting profile
+            apiClient.get('/subscriptions/current')
+              .then(subResponse => {
+                setSubscription(subResponse.data); // This will be null or the sub object
+              })
+              .catch(err => {
+                console.error("Error fetching subscription", err);
+                setSubscription(null);
+              })
+              .finally(() => {
+                setIsSubLoading(false);
+                setIsNewUser(false);
+                setLoading(false);
+              });
             
             // Request push permission and register token
             requestNotificationPermission();
@@ -175,19 +167,22 @@ function App() {
             if (error.response && error.response.status === 404) {
               setUserProfile(null); 
               setIsNewUser(true);
+              setIsSubLoading(false);
+              setLoading(false);
             } else {
               // Any other error: do NOT treat as new-user. Keep them on a safe fallback.
               console.error('Failed to load profile:', error);
               setIsNewUser(false);
+              setIsSubLoading(false);
+              setLoading(false);
             }
-          })
-          .finally(() => {
-            // Now we're done, stop loading.
-            setLoading(false);
           });
       } else {
         setAuthUser(null);
         setUserProfile(null);
+        setSubscription(null);
+        setIsBillingOwner(false);
+        setIsSubLoading(true);
         setLoading(false);
       }
     });
@@ -235,119 +230,116 @@ function App() {
         <SelectRole />
       )}
 
-      {/* 4.5. User needs to select a package */}
-      {!loading && authUser && authUser.emailVerified && userProfile && showPackageSelection && (
-        <PackageSelection 
-          role={userProfile.role === 'school-admin' ? 'school' : userProfile.role === 'district-admin' ? 'district' : userProfile.role === 'employer-admin' ? 'employer' : 'parent'} 
-        />
-      )}
-
-      {/* 5. User is fully logged in, verified, has a profile, and has subscription (if needed) */}
-      {!loading && authUser && authUser.emailVerified && userProfile && !showPackageSelection && (
+      {/* 5. User is fully logged in, verified, and has a profile */}
+      {!loading && authUser && authUser.emailVerified && userProfile && (
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {/* Success Message */}
-          {showSuccessMessage && (
-            <div className="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-md">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <p className="font-medium">Subscription activated successfully! Your account is now active.</p>
-                </div>
-                <button
-                  onClick={() => setShowSuccessMessage(false)}
-                  className="text-green-600 hover:text-green-800"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Header */}
+          {/* Header (Put this here so it shows on all screens) */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div>
+            <div>
               <h2 className="text-xl md:text-2xl font-semibold text-gray-900">
-                Welcome{userProfile.firstName ? `, ${userProfile.firstName}${userProfile.lastName ? ` ${userProfile.lastName}` : ''}` : userProfile.email ? `, ${userProfile.email.split('@')[0]}` : ''}
+                Welcome{userProfile.firstName ? `, ${userProfile.firstName}` : ''}
               </h2>
               <p className="text-sm text-gray-500">Role: <span className="text-gray-900 font-medium">{userProfile.role}</span></p>
             </div>
             <div className="flex items-center gap-3">
+              {/* Show "Manage Subscription" button ONLY to billing owner */}
+              {isBillingOwner && subscription && subscription.status === 'active' && (
+                <SubscriptionManagement userRole={userProfile.role} isBillingOwner={isBillingOwner} />
+              )}
               <button onClick={handleSignOut} className="rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 font-medium">Sign Out</button>
             </div>
           </div>
 
-          {/* Content */}
-          <div className="mt-6 space-y-6">
-          {/* --- Student UI --- */}
-          {(userProfile.role === 'student' || userProfile.role === 'employee') && (
-              <div className="space-y-4">
-              <CheckIn onCreated={() => setSelfCheckInsRefreshKey(v => v + 1)} />
-              <CheckInHistory refreshToken={selfCheckInsRefreshKey} />
+          {/* Main Content: Check Subscription Status */}
+          {isSubLoading ? (
+            <div className="flex items-center justify-center min-h-[50vh]">
+              <Spinner label="Checking subscription..." />
             </div>
-          )}
+          ) : !subscription || subscription.status !== 'active' ? (
+            // No active subscription.
+            // Check if they are the billing owner.
+            isBillingOwner ? (
+              // They are the boss, they need to pay.
+              <PackageSelection role={userProfile.role} />
+            ) : (
+              // They are a sub-user (staff, child, etc.)
+              <div className="text-center p-8 bg-white rounded-xl border border-gray-200 mt-6">
+                <h2 className="text-2xl font-semibold text-gray-900">Account Not Active</h2>
+                <p className="mt-2 text-gray-600">Your organization's subscription is not active. Please contact your administrator to complete the setup.</p>
+              </div>
+            )
+          ) : (
+            // They HAVE an active subscription. Show the dashboard.
+            <div className="mt-6 space-y-6">
+              {/* --- Student UI --- */}
+              {(userProfile.role === 'student' || userProfile.role === 'employee') && (
+                <div className="space-y-4">
+                  <CheckIn onCreated={() => setSelfCheckInsRefreshKey(v => v + 1)} />
+                  <CheckInHistory refreshToken={selfCheckInsRefreshKey} />
+                </div>
+              )}
 
-          {/* --- Parent UI --- */}
-          {userProfile.role === 'parent' && (
-              <div className="space-y-4">
-                <CollapsiblePanel title="Add Child">
-                  <CreateChild onCreated={() => setParentChildrenRefreshKey(v => v + 1)} />
-                </CollapsiblePanel>
-                <ParentDashboard refreshToken={parentChildrenRefreshKey} />
-            </div>
-          )}
+              {/* --- Parent UI --- */}
+              {userProfile.role === 'parent' && (
+                <div className="space-y-4">
+                  <CollapsiblePanel title="Add Child">
+                    <CreateChild onCreated={() => setParentChildrenRefreshKey(v => v + 1)} />
+                  </CollapsiblePanel>
+                  <ParentDashboard refreshToken={parentChildrenRefreshKey} />
+                </div>
+              )}
 
-          {/* --- School Admin UI --- */}
-          {userProfile.role === 'school-admin' && (
-              <div className="space-y-4">
-                <CollapsiblePanel title="Add Staff">
-              <CreateStaff onCreated={() => setSchoolStaffRefreshKey(v => v + 1)} />
-                </CollapsiblePanel>
-                <SchoolStaffList key={schoolStaffRefreshKey} refreshToken={schoolStaffRefreshKey} />
-            </div>
-          )}
+              {/* --- School Admin UI --- */}
+              {userProfile.role === 'school-admin' && (
+                <div className="space-y-4">
+                  <CollapsiblePanel title="Add Staff">
+                    <CreateStaff onCreated={() => setSchoolStaffRefreshKey(v => v + 1)} />
+                  </CollapsiblePanel>
+                  <SchoolStaffList key={schoolStaffRefreshKey} refreshToken={schoolStaffRefreshKey} />
+                </div>
+              )}
 
-          {/* --- Teacher/Staff UI --- */}
-          {(userProfile.role === 'teacher' || userProfile.role === 'counselor' || userProfile.role === 'social-worker') && (
-              <div className="space-y-4">
-                <CollapsiblePanel title="Add Student">
-              <CreateStudent onCreated={() => setStudentsRefreshKey(v => v + 1)} />
-                </CollapsiblePanel>
-              <StaffDashboard userType="student" refreshToken={studentsRefreshKey} />
-            </div>
-          )}
+              {/* --- Teacher/Staff UI --- */}
+              {(userProfile.role === 'teacher' || userProfile.role === 'counselor' || userProfile.role === 'social-worker') && (
+                <div className="space-y-4">
+                  <CollapsiblePanel title="Add Student">
+                    <CreateStudent onCreated={() => setStudentsRefreshKey(v => v + 1)} />
+                  </CollapsiblePanel>
+                  <StaffDashboard userType="student" refreshToken={studentsRefreshKey} />
+                </div>
+              )}
 
-          {/* --- District Admin UI --- */}
-          {userProfile.role === 'district-admin' && (
-              <div className="space-y-4">
-                <CollapsiblePanel title="Create New Institute">
-                  <CreateInstitute onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
-                </CollapsiblePanel>
-                <InstituteList key={schoolsRefreshKey} />
-            </div>
-          )}
+              {/* --- District Admin UI --- */}
+              {userProfile.role === 'district-admin' && (
+                <div className="space-y-4">
+                  <CollapsiblePanel title="Create New Institute">
+                    <CreateInstitute onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
+                  </CollapsiblePanel>
+                  <InstituteList key={schoolsRefreshKey} />
+                </div>
+              )}
 
-          {/* --- Employer UI --- */}
-          {userProfile.role === 'employer-admin' && (
-              <div className="space-y-4">
-                <CollapsiblePanel title="Add Staff">
-              <CreateEmployerStaff onCreated={() => setEmployerStaffRefreshKey(v => v + 1)} />
-                </CollapsiblePanel>
-                <EmployerStaffList key={employerStaffRefreshKey} refreshToken={employerStaffRefreshKey} />
-            </div>
-          )}
+              {/* --- Employer UI --- */}
+              {userProfile.role === 'employer-admin' && (
+                <div className="space-y-4">
+                  <CollapsiblePanel title="Add Staff">
+                    <CreateEmployerStaff onCreated={() => setEmployerStaffRefreshKey(v => v + 1)} />
+                  </CollapsiblePanel>
+                  <EmployerStaffList key={employerStaffRefreshKey} refreshToken={employerStaffRefreshKey} />
+                </div>
+              )}
 
-          {/* --- Employer Staff UI --- */}
-          {(userProfile.role === 'supervisor' || userProfile.role === 'hr') && (
-              <div className="space-y-4">
-                <CollapsiblePanel title="Add Employee">
-              <CreateEmployee onCreated={() => setEmployeesRefreshKey(v => v + 1)} />
-                </CollapsiblePanel>
-              <StaffDashboard userType="employee" refreshToken={employeesRefreshKey} />
+              {/* --- Employer Staff UI --- */}
+              {(userProfile.role === 'supervisor' || userProfile.role === 'hr') && (
+                <div className="space-y-4">
+                  <CollapsiblePanel title="Add Employee">
+                    <CreateEmployee onCreated={() => setEmployeesRefreshKey(v => v + 1)} />
+                  </CollapsiblePanel>
+                  <StaffDashboard userType="employee" refreshToken={employeesRefreshKey} />
+                </div>
+              )}
             </div>
           )}
-          </div>
         </div>
       )}
     </div>

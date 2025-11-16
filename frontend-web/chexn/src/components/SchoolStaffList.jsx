@@ -17,6 +17,7 @@ function SchoolStaffList({ refreshToken }) {
   const [coverageChecked, setCoverageChecked] = useState(false);
   const [schoolLimits, setSchoolLimits] = useState(null);
   const [schoolLimitsLoading, setSchoolLimitsLoading] = useState(false);
+  const [isBillingOwner, setIsBillingOwner] = useState(false);
 
   const fetchStaff = async () => {
     try {
@@ -33,6 +34,18 @@ function SchoolStaffList({ refreshToken }) {
   useEffect(() => {
     fetchStaff();
   }, [refreshToken]);
+
+  // Fetch user profile to determine isBillingOwner
+  useEffect(() => {
+    apiClient.get('/users/me')
+      .then(response => {
+        const profile = response.data;
+        setIsBillingOwner(profile.uid === profile.billingOwnerId);
+      })
+      .catch(err => {
+        console.error('Failed to fetch user profile:', err);
+      });
+  }, []);
 
   // Check if this school-admin is covered by a parent district subscription
   useEffect(() => {
@@ -168,6 +181,7 @@ function SchoolStaffList({ refreshToken }) {
           isOpen={showSubscriptionModal}
           onClose={() => setShowSubscriptionModal(false)}
           userRole="school-admin"
+          isBillingOwner={isBillingOwner}
         />
       )}
     </div>
