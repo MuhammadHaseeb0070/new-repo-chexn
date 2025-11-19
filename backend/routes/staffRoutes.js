@@ -4,7 +4,8 @@ const { db, admin } = require('../config/firebase'); // We need 'admin'
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
 const { checkLimit } = require('../middleware/subscriptionMiddleware');
-const { updateUsage, refreshUsage, checkLimit: checkLimitUtil } = require('../utils/usageTracker');
+const { getUsage } = require('../utils/usageTracker');
+const { withBillingOwner } = require('../utils/billingOwner');
 // We don't need humanReadableId, that was a mistake in my old code.
 
 // GET /my-students - Copy from teacherRoutes.js
@@ -161,7 +162,7 @@ router.post('/checkins/:studentId/mark-read', authMiddleware, async (req, res) =
 });
 
 // POST /create-student - (This was missing)
-router.post('/create-student', authMiddleware, checkLimit('students'), async (req, res) => {
+router.post('/create-student', authMiddleware, checkLimit('studentsPerStaff'), async (req, res) => {
   try {
     // Security Check: Verify the user is a staff member
     const { billingOwnerId, organizationId, uid: creatorId, role: staffRole } = req.creator;
@@ -180,7 +181,7 @@ router.post('/create-student', authMiddleware, checkLimit('students'), async (re
     });
 
     // Create the user in Firestore
-    const userData = {
+    const userData = withBillingOwner({
       uid: newStudentUser.uid,
       email,
       firstName,
@@ -188,9 +189,8 @@ router.post('/create-student', authMiddleware, checkLimit('students'), async (re
       role: 'student',
       organizationId: organizationId,
       createdAt: new Date(),
-      creatorId: creatorId,
-      billingOwnerId: billingOwnerId
-    };
+      creatorId: creatorId
+    }, billingOwnerId);
     
     // Add phoneNumber if provided (future-proof for mobile/SMS)
     if (phoneNumber) {
@@ -207,16 +207,6 @@ router.post('/create-student', authMiddleware, checkLimit('students'), async (re
       password,
       createdAt: new Date()
     });
-
-    const adminId = req.creator.creatorId;
-    const staffName = [req.creator.firstName, req.creator.lastName].filter(Boolean).join(' ') || req.creator.email || 'Staff';
-    try {
-      if (adminId) {
-        await updateUsage(adminId, `student:${creatorId}`, 1, { staffName });
-      }
-    } catch (usageError) {
-      console.error('Error updating usage for student creation:', usageError);
-    }
 
     res.status(201).json({
       uid: newStudentUser.uid,
@@ -274,15 +264,27 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
     }
 
     if (billingOwnerId) {
-      const limitCheck = await checkLimitUtil(billingOwnerId, 'student', users.length, req.user.uid);
-      if (!limitCheck.allowed) {
+      const [subscriptionDoc, usage] = await Promise.all([
+        db.collection('subscriptions').doc(billingOwnerId).get(),
+        getUsage(billingOwnerId)
+      ]);
+
+      if (!subscriptionDoc.exists || subscriptionDoc.data().status !== 'active') {
+        return res.status(403).json({ error: 'Subscription is not active.' });
+      }
+
+      const limits = subscriptionDoc.data().limits || {};
+      const perStaffLimit = limits.studentsPerStaff || 0;
+      const currentStudents = usage.studentsPerStaff[creatorId] || 0;
+
+      if (currentStudents + users.length > perStaffLimit) {
         return res.status(403).json({
           error: 'Limit exceeded',
-          message: limitCheck.reason || 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
-          current: limitCheck.current,
-          limit: limitCheck.limit,
-          requested: limitCheck.requested || users.length,
-          canUpgrade: true,
+          message: 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+          current: currentStudents,
+          limit: perStaffLimit,
+          requested: users.length,
+          canUpgrade: true
         });
       }
     }
@@ -424,7 +426,7 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
         });
 
         // Create user in Firestore
-        const userDoc = {
+        const userDoc = withBillingOwner({
           uid: newStudentUser.uid,
           email,
           firstName,
@@ -432,9 +434,8 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
           role: 'student',
           organizationId: organizationId,
           createdAt: new Date(),
-          creatorId: creatorId,
-          billingOwnerId: billingOwnerId
-        };
+          creatorId: creatorId
+        }, billingOwnerId);
 
         if (normalizedPhone) {
           userDoc.phoneNumber = normalizedPhone;
@@ -485,14 +486,6 @@ router.post('/bulk-create-students', authMiddleware, async (req, res) => {
         });
         results.skipped++;
         console.error(`Error creating student at row ${i + 1}:`, error);
-      }
-    }
-
-    if (results.created > 0 && adminId) {
-      try {
-        await refreshUsage(adminId);
-      } catch (usageError) {
-        console.error('Error refreshing usage after bulk student import:', usageError);
       }
     }
 
@@ -661,19 +654,6 @@ router.delete('/student/:studentId', authMiddleware, async (req, res) => {
     });
     await batch.commit();
     
-    try {
-      const staffDoc = await db.collection('users').doc(staffId).get();
-      const staffData = staffDoc.data() || {};
-      const adminId = staffData.creatorId;
-      const staffName = [staffData.firstName, staffData.lastName].filter(Boolean).join(' ') || staffData.email || 'Staff';
-      if (adminId) {
-        await updateUsage(adminId, `student:${staffId}`, -1, { staffName });
-        await refreshUsage(adminId);
-      }
-    } catch (usageError) {
-      console.error('Error updating usage after student deletion:', usageError);
-    }
-
     res.status(200).json({ success: true, message: 'Student deleted successfully' });
   } catch (error) {
     console.error('Error deleting student:', error);

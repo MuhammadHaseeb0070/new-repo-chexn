@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { auth } from "./firebaseClient.js";
 import { requestNotificationPermission, setupForegroundMessageHandler } from "./firebaseMessaging.js";
 import { onAuthStateChanged, signOut, sendEmailVerification } from "firebase/auth";
@@ -40,8 +40,36 @@ function App() {
   const [showPackageSelection, setShowPackageSelection] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [subscription, setSubscription] = useState(null);
+  const [usageData, setUsageData] = useState(null);
   const [isBillingOwner, setIsBillingOwner] = useState(false);
   const [isSubLoading, setIsSubLoading] = useState(true);
+
+  const refreshAccountData = useCallback(async () => {
+    try {
+      setIsSubLoading(true);
+      const [subResponse, usageResponse] = await Promise.all([
+        apiClient.get('/subscriptions/current'),
+        apiClient.get('/usage/current')
+      ]);
+      setSubscription(subResponse.data);
+      setUsageData(usageResponse.data);
+    } catch (err) {
+      console.error('Error fetching account info', err);
+      setSubscription(null);
+      setUsageData(null);
+    } finally {
+      setIsSubLoading(false);
+    }
+  }, []);
+
+  const refreshUsageOnly = useCallback(async () => {
+    try {
+      const usageResponse = await apiClient.get('/usage/current');
+      setUsageData(usageResponse.data);
+    } catch (err) {
+      console.error('Error refreshing usage data', err);
+    }
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -51,6 +79,7 @@ function App() {
       setSubscription(null);
       setIsBillingOwner(false);
       setIsSubLoading(true);
+      setUsageData(null);
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -105,55 +134,19 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-
-        try {
-
-          const token = await user.getIdToken();
-
-          // Most likely this token is sent with apiClient (axios) requests as a bearer token,
-
-          // but to follow your instructions, we'll log it here:
-
-          console.log("Firebase access token:", token);
-
-        } catch (err) {
-
-          console.warn("Could not get Firebase access token:", err);
-
-        }
         setLoading(true); 
         setAuthUser(user);
         
         // Check if they have a profile in our DB
-        apiClient.get('/users/me')
-          .then(async (response) => {
-            // They have a profile, save it
+        try {
+          const response = await apiClient.get('/users/me');
             const profile = response.data;
             setUserProfile(profile);
-            
-            // Set isBillingOwner based on uid and billingOwnerId
             setIsBillingOwner(profile.uid === profile.billingOwnerId);
-            
-            // Fetch subscription after setting profile
-            apiClient.get('/subscriptions/current')
-              .then(subResponse => {
-                setSubscription(subResponse.data); // This will be null or the sub object
-              })
-              .catch(err => {
-                console.error("Error fetching subscription", err);
-                setSubscription(null);
-              })
-              .finally(() => {
-                setIsSubLoading(false);
-                setIsNewUser(false);
-                setLoading(false);
-              });
-            
-            // Request push permission and register token
+          await refreshAccountData();
+
             requestNotificationPermission();
-            // Setup foreground message handler for notifications
             setupForegroundMessageHandler((scheduleId) => {
-              // Scroll to check-in form if it exists
               setTimeout(() => {
                 const checkInElement = document.querySelector('[data-checkin-form]');
                 if (checkInElement) {
@@ -161,26 +154,25 @@ function App() {
                 }
               }, 100);
             });
-          })
-          .catch(error => {
-            // A 404 means they are new and need to pick a role
+        } catch (error) {
             if (error.response && error.response.status === 404) {
               setUserProfile(null); 
               setIsNewUser(true);
               setIsSubLoading(false);
               setLoading(false);
-            } else {
-              // Any other error: do NOT treat as new-user. Keep them on a safe fallback.
+            return;
+          }
               console.error('Failed to load profile:', error);
               setIsNewUser(false);
               setIsSubLoading(false);
+        } finally {
               setLoading(false);
             }
-          });
       } else {
         setAuthUser(null);
         setUserProfile(null);
         setSubscription(null);
+        setUsageData(null);
         setIsBillingOwner(false);
         setIsSubLoading(true);
         setLoading(false);
@@ -189,7 +181,36 @@ function App() {
 
     // Cleanup subscription on unmount
     return () => unsubscribe();
-  }, []); // Empty dependency array
+  }, [refreshAccountData]);
+
+  const bumpRefreshAndUsage = useCallback((setter) => {
+    setter((value) => value + 1);
+    refreshUsageOnly();
+  }, [refreshUsageOnly]);
+
+  const handleParentChildrenChange = useCallback(() => {
+    bumpRefreshAndUsage(setParentChildrenRefreshKey);
+  }, [bumpRefreshAndUsage]);
+
+  const handleSchoolStaffChange = useCallback(() => {
+    bumpRefreshAndUsage(setSchoolStaffRefreshKey);
+  }, [bumpRefreshAndUsage]);
+
+  const handleStudentListChange = useCallback(() => {
+    bumpRefreshAndUsage(setStudentsRefreshKey);
+  }, [bumpRefreshAndUsage]);
+
+  const handleInstituteChange = useCallback(() => {
+    bumpRefreshAndUsage(setSchoolsRefreshKey);
+  }, [bumpRefreshAndUsage]);
+
+  const handleEmployerStaffChange = useCallback(() => {
+    bumpRefreshAndUsage(setEmployerStaffRefreshKey);
+  }, [bumpRefreshAndUsage]);
+
+  const handleEmployeeChange = useCallback(() => {
+    bumpRefreshAndUsage(setEmployeesRefreshKey);
+  }, [bumpRefreshAndUsage]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -244,7 +265,13 @@ function App() {
             <div className="flex items-center gap-3">
               {/* Show "Manage Subscription" button ONLY to billing owner */}
               {isBillingOwner && subscription && subscription.status === 'active' && (
-                <SubscriptionManagement userRole={userProfile.role} isBillingOwner={isBillingOwner} />
+                <SubscriptionManagement
+                  subscription={subscription}
+                  usageData={usageData}
+                  profile={userProfile}
+                  isBillingOwner={isBillingOwner}
+                  onSubscriptionUpdated={refreshAccountData}
+                />
               )}
               <button onClick={handleSignOut} className="rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 font-medium">Sign Out</button>
             </div>
@@ -283,9 +310,17 @@ function App() {
               {userProfile.role === 'parent' && (
                 <div className="space-y-4">
                   <CollapsiblePanel title="Add Child">
-                    <CreateChild onCreated={() => setParentChildrenRefreshKey(v => v + 1)} />
+                    <CreateChild onCreated={handleParentChildrenChange} />
                   </CollapsiblePanel>
-                  <ParentDashboard refreshToken={parentChildrenRefreshKey} />
+                  <ParentDashboard
+                    refreshToken={parentChildrenRefreshKey}
+                    subscription={subscription}
+                    usageData={usageData}
+                    profile={userProfile}
+                    isBillingOwner={isBillingOwner}
+                    onSubscriptionUpdated={refreshAccountData}
+                    onUsageRefresh={refreshUsageOnly}
+                  />
                 </div>
               )}
 
@@ -293,9 +328,18 @@ function App() {
               {userProfile.role === 'school-admin' && (
                 <div className="space-y-4">
                   <CollapsiblePanel title="Add Staff">
-                    <CreateStaff onCreated={() => setSchoolStaffRefreshKey(v => v + 1)} />
+                    <CreateStaff onCreated={handleSchoolStaffChange} />
                   </CollapsiblePanel>
-                  <SchoolStaffList key={schoolStaffRefreshKey} refreshToken={schoolStaffRefreshKey} />
+                  <SchoolStaffList
+                    key={schoolStaffRefreshKey}
+                    refreshToken={schoolStaffRefreshKey}
+                    subscription={subscription}
+                    usageData={usageData}
+                    profile={userProfile}
+                    isBillingOwner={isBillingOwner}
+                    onSubscriptionUpdated={refreshAccountData}
+                    onUsageRefresh={refreshUsageOnly}
+                  />
                 </div>
               )}
 
@@ -303,9 +347,16 @@ function App() {
               {(userProfile.role === 'teacher' || userProfile.role === 'counselor' || userProfile.role === 'social-worker') && (
                 <div className="space-y-4">
                   <CollapsiblePanel title="Add Student">
-                    <CreateStudent onCreated={() => setStudentsRefreshKey(v => v + 1)} />
+                    <CreateStudent onCreated={handleStudentListChange} />
                   </CollapsiblePanel>
-                  <StaffDashboard userType="student" refreshToken={studentsRefreshKey} />
+                  <StaffDashboard
+                    userType="student"
+                    refreshToken={studentsRefreshKey}
+                    subscription={subscription}
+                    usageData={usageData}
+                    profile={userProfile}
+                    onUsageRefresh={refreshUsageOnly}
+                  />
                 </div>
               )}
 
@@ -313,9 +364,17 @@ function App() {
               {userProfile.role === 'district-admin' && (
                 <div className="space-y-4">
                   <CollapsiblePanel title="Create New Institute">
-                    <CreateInstitute onCreated={() => setSchoolsRefreshKey(v => v + 1)} />
+                    <CreateInstitute onCreated={handleInstituteChange} />
                   </CollapsiblePanel>
-                  <InstituteList key={schoolsRefreshKey} />
+                  <InstituteList
+                    key={schoolsRefreshKey}
+                    subscription={subscription}
+                    usageData={usageData}
+                    profile={userProfile}
+                    isBillingOwner={isBillingOwner}
+                    onSubscriptionUpdated={refreshAccountData}
+                    onUsageRefresh={refreshUsageOnly}
+                  />
                 </div>
               )}
 
@@ -323,9 +382,18 @@ function App() {
               {userProfile.role === 'employer-admin' && (
                 <div className="space-y-4">
                   <CollapsiblePanel title="Add Staff">
-                    <CreateEmployerStaff onCreated={() => setEmployerStaffRefreshKey(v => v + 1)} />
+                    <CreateEmployerStaff onCreated={handleEmployerStaffChange} />
                   </CollapsiblePanel>
-                  <EmployerStaffList key={employerStaffRefreshKey} refreshToken={employerStaffRefreshKey} />
+                  <EmployerStaffList
+                    key={employerStaffRefreshKey}
+                    refreshToken={employerStaffRefreshKey}
+                    subscription={subscription}
+                    usageData={usageData}
+                    profile={userProfile}
+                    isBillingOwner={isBillingOwner}
+                    onSubscriptionUpdated={refreshAccountData}
+                    onUsageRefresh={refreshUsageOnly}
+                  />
                 </div>
               )}
 
@@ -333,9 +401,16 @@ function App() {
               {(userProfile.role === 'supervisor' || userProfile.role === 'hr') && (
                 <div className="space-y-4">
                   <CollapsiblePanel title="Add Employee">
-                    <CreateEmployee onCreated={() => setEmployeesRefreshKey(v => v + 1)} />
+                    <CreateEmployee onCreated={handleEmployeeChange} />
                   </CollapsiblePanel>
-                  <StaffDashboard userType="employee" refreshToken={employeesRefreshKey} />
+                  <StaffDashboard
+                    userType="employee"
+                    refreshToken={employeesRefreshKey}
+                    subscription={subscription}
+                    usageData={usageData}
+                    profile={userProfile}
+                    onUsageRefresh={refreshUsageOnly}
+                  />
                 </div>
               )}
             </div>

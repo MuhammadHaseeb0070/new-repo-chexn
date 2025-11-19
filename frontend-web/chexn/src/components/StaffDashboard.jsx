@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../apiClient.js';
 import CommunicationThread from './CommunicationThread.jsx';
 import ThreadModal from './ThreadModal.jsx';
@@ -11,11 +11,10 @@ import InfoTooltip from './InfoTooltip.jsx';
 import { getEmojiForCategory } from '../utils/emojiHelper.js';
 import { EMOTIONAL_CATEGORIES } from '../constants.js';
 import UserManagement from './UserManagement.jsx';
-import SubscriptionManagement from './SubscriptionManagement.jsx';
 
 // This component is smart. It takes a 'userType' prop (either 'student' or 'employee')
 // and dynamically calls the correct API endpoints.
-function StaffDashboard({ userType, refreshToken }) {
+function StaffDashboard({ userType, refreshToken, subscription, usageData, profile, onUsageRefresh }) {
   const [users, setUsers] = useState([]); // List of students or employees
   const [loading, setLoading] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState(null);
@@ -23,8 +22,6 @@ function StaffDashboard({ userType, refreshToken }) {
   const [selectedCheckInId, setSelectedCheckInId] = useState(null);
   const [unreadByUserId, setUnreadByUserId] = useState({});
   const [filterCategory, setFilterCategory] = useState('');
-  const [quota, setQuota] = useState(null);
-  const [quotaLoading, setQuotaLoading] = useState(true);
 
   // Define API endpoints based on the userType prop
   const apiConfig = {
@@ -44,6 +41,23 @@ function StaffDashboard({ userType, refreshToken }) {
   // Unread summary endpoint per userType
   const unreadSummaryEndpoint = userType === 'student' ? '/staff/unread-summary' : '/employer-staff/unread-summary';
 
+  const capacityInfo = useMemo(() => {
+    if (!subscription || !usageData || !profile) {
+      return null;
+    }
+    if (userType === 'student') {
+      const limit = subscription.limits?.studentsPerStaff || 0;
+      const current = usageData.studentsPerStaff?.[profile.uid] || 0;
+      return { limit, current, label: 'students' };
+    }
+    if (userType === 'employee') {
+      const limit = subscription.limits?.employeesPerStaff || 0;
+      const current = usageData.employeesPerStaff?.[profile.uid] || 0;
+      return { limit, current, label: 'employees' };
+    }
+    return null;
+  }, [subscription, usageData, profile, userType]);
+
   const fetchUsers = useCallback(() => {
     apiClient.get(currentConfig.list)
       .then(res => setUsers(res.data))
@@ -56,25 +70,6 @@ function StaffDashboard({ userType, refreshToken }) {
     fetchUsers();
   }, [fetchUsers, refreshToken]);
 
-  // Fetch my per-staff quota (limit and current usage)
-  useEffect(() => {
-    let mounted = true;
-    const run = async () => {
-      try {
-        setQuotaLoading(true);
-        const res = await apiClient.get('/usage/my-quota');
-        if (mounted) setQuota(res.data);
-      } catch (e) {
-        if (mounted) setQuota(null);
-      } finally {
-        if (mounted) setQuotaLoading(false);
-      }
-    };
-    run();
-    return () => {
-      mounted = false;
-    };
-  }, [refreshToken]);
 
   // Lazy load unread summary (non-blocking, load after UI renders)
   useEffect(() => {
@@ -145,25 +140,23 @@ function StaffDashboard({ userType, refreshToken }) {
                     <h3 className="text-lg font-semibold text-gray-900">My Capacity</h3>
                     <InfoTooltip description={`Your personal limit for ${userTypeName.toLowerCase()}s you can add, based on your admin’s plan.`} />
                   </div>
-                  {!quotaLoading && quota && (
+                  {capacityInfo ? (
                     <span className="text-sm text-gray-600">
-                      {quota.current} / {quota.limit} used
-                      {typeof quota.remaining === 'number' ? ` — ${quota.remaining} remaining` : ''}
+                      {capacityInfo.current} / {capacityInfo.limit} used — {Math.max(capacityInfo.limit - capacityInfo.current, 0)} remaining
                     </span>
+                  ) : (
+                    <span className="text-sm text-gray-500">Capacity unavailable</span>
                   )}
                 </div>
-                {quotaLoading ? (
-                  <div className="mt-2"><Spinner label="Checking your capacity..." /></div>
-                ) : quota ? (
-                  <div className="mt-2 text-sm text-gray-600">
-                    You can add up to <span className="font-medium text-gray-900">{quota.limit}</span> {userTypeName.toLowerCase()}s. 
-                    Currently used: <span className="font-medium text-gray-900">{quota.current}</span>.
-                  </div>
-                ) : (
-                  <div className="mt-2 text-sm text-gray-500">
-                    Your quota could not be determined. Please check with your admin.
-                  </div>
-                )}
+                <div className="mt-2 text-sm text-gray-600">
+                  {capacityInfo ? (
+                    <>
+                      You can add up to <span className="font-medium text-gray-900">{capacityInfo.limit}</span> {capacityInfo.label}. Currently used: <span className="font-medium text-gray-900">{capacityInfo.current}</span>.
+                    </>
+                  ) : (
+                    'Your quota could not be determined. Please check with your admin.'
+                  )}
+                </div>
               </div>
             </div>
             {/* User list */}
@@ -199,24 +192,18 @@ function StaffDashboard({ userType, refreshToken }) {
                           if (selectedUserId === u.uid) {
                             setSelectedUserId(null);
                           }
+                          if (onUsageRefresh) {
+                            onUsageRefresh();
+                          }
                         }}
                         onDeleted={() => {
                           fetchUsers();
                           if (selectedUserId === u.uid) {
                             setSelectedUserId(null);
                           }
-                          // Refresh my quota after deletion
-                          (async () => {
-                            try {
-                              setQuotaLoading(true);
-                              const res = await apiClient.get('/usage/my-quota');
-                              setQuota(res.data);
-                            } catch (e) {
-                              setQuota(null);
-                            } finally {
-                              setQuotaLoading(false);
-                            }
-                          })();
+                          if (onUsageRefresh) {
+                            onUsageRefresh();
+                          }
                         }}
                       />
                     </div>

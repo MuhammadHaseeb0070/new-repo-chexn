@@ -4,6 +4,7 @@ const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 const { checkLimit } = require('../middleware/subscriptionMiddleware');
 const { getUsage } = require('../utils/usageTracker');
+const { withBillingOwner } = require('../utils/billingOwner');
 
 router.get('/my-institutes', authMiddleware, async (req, res) => {
   try {
@@ -51,15 +52,16 @@ router.post('/create-institute', authMiddleware, checkLimit('schools'), async (r
     });
 
     // Create the School Admin user in Firestore
-    await db.collection('users').doc(newSchoolAdmin.uid).set({
-      uid: newSchoolAdmin.uid,
-      email,
-      firstName,
-      lastName,
-      role: 'school-admin',
-      organizationId: newSchoolOrgId,
-      billingOwnerId: billingOwnerId
-    });
+    await db.collection('users').doc(newSchoolAdmin.uid).set(
+      withBillingOwner({
+        uid: newSchoolAdmin.uid,
+        email,
+        firstName,
+        lastName,
+        role: 'school-admin',
+        organizationId: newSchoolOrgId
+      }, billingOwnerId)
+    );
     // Store password for creator to view later
     try {
       await db.collection('userCredentials').set ? Promise.resolve() : Promise.resolve();
@@ -236,16 +238,17 @@ router.post('/bulk-create-institutes', authMiddleware, async (req, res) => {
         const newUser = await admin.auth().createUser({ email, password, displayName: `${firstName} ${lastName}`, emailVerified: true });
 
         // Firestore user
-        await db.collection('users').doc(newUser.uid).set({
-          uid: newUser.uid,
-          email,
-          firstName,
-          lastName,
-          role: 'school-admin',
-          organizationId: newOrgRef.id,
-          billingOwnerId: billingOwnerId,
-          createdAt: new Date()
-        });
+        await db.collection('users').doc(newUser.uid).set(
+          withBillingOwner({
+            uid: newUser.uid,
+            email,
+            firstName,
+            lastName,
+            role: 'school-admin',
+            organizationId: newOrgRef.id,
+            createdAt: new Date()
+          }, billingOwnerId)
+        );
         // Store password for creator to view later
         await db.collection('userCredentials').doc(newUser.uid).set({
           uid: newUser.uid,
@@ -494,123 +497,6 @@ router.delete('/institute/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error deleting institute:', error);
     return res.status(500,).json({ error: 'Internal server error' });
-  }
-});
-
-router.get('/coverage', authMiddleware, async (req, res) => {
-  try {
-    const { db } = require('../config/firebase');
-    const userId = req.user.uid;
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) return res.status(200).json({ covered: false });
-    const user = userDoc.data() || {};
-
-    // Only school-admin can be covered by a parent district subscription
-    if (user.role !== 'school-admin') return res.status(200).json({ covered: false });
-
-    if (!user.organizationId) return res.status(200).json({ covered: false });
-    const orgDoc = await db.collection('organizations').doc(user.organizationId).get();
-    if (!orgDoc.exists) return res.status(200).json({ covered: false });
-    const org = orgDoc.data() || {};
-    const parentDistrictId = org.parentDistrictId; // set when district creates the school
-    if (!parentDistrictId) return res.status(200).json({ covered: false });
-
-    // Find the district admin user for that parent org id
-    const districtAdminSnap = await db.collection('users')
-      .where('role', '==', 'district-admin')
-      .where('uid', '==', parentDistrictId)
-      .limit(1)
-      .get();
-
-    let districtAdminId = null;
-    if (!districtAdminSnap.empty) {
-      districtAdminId = districtAdminSnap.docs[0].id;
-    } else {
-      // Fallback: some schemas store the district admin by organizationId instead of uid
-      const alt = await db.collection('users')
-        .where('role', '==', 'district-admin')
-        .where('organizationId', '==', parentDistrictId)
-        .limit(1)
-        .get();
-      if (!alt.empty) districtAdminId = alt.docs[0].id;
-    }
-
-    if (!districtAdminId) return res.status(200).json({ covered: false });
-
-    const subDoc = await db.collection('subscriptions').doc(districtAdminId).get();
-    if (!subDoc.exists) return res.status(200).json({ covered: false });
-    const sub = subDoc.data() || {};
-    const covered = sub.status === 'active' || sub.status === 'trialing';
-    return res.status(200).json({ covered });
-  } catch (e) {
-    console.error('Error checking coverage:', e);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-router.get('/effective-limits', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const userDoc = await db.collection('users').get().then(snap => snap.docs.find(d => d.id === userId));
-    if (!userDoc) return res.status(404).json({ error: 'User not found' });
-    const user = userDoc.data() || {};
-
-    if (user.role !== 'school-admin') {
-      return res.status(400).json({ error: 'Only available for school-admin role' });
-    }
-
-    if (!user.organizationId) return res.status(400).json({ error: 'School has no organization' });
-    const orgDoc = await db.collection('organizations').doc(user.organizationId).get();
-    if (!orgDoc.exists) return res.status(404).json({ error: 'School organization not found' });
-    const org = orgDoc.data() || {};
-    const parentDistrictId = org.parentDistrictId;
-    if (!parentDistrictId) return res.status(404).json({ error: 'School is not linked to a district' });
-
-    // Locate district admin user by id (exact match on uid) or by organizationId fallback
-    let districtAdminId = null;
-    const districtByUid = await db.collection('users')
-      .where('role', '==', 'district-admin')
-      .where('uid', '==', parentDistrictId)
-      .limit(1)
-      .get();
-    if (!districtByUid.empty) {
-      districtAdminId = districtByUid.docs[0].id;
-    } else {
-      const districtByOrg = await db.collection('users')
-        .where('role', '==', 'district-admin')
-        .where('organizationId', '==', parentDistrictId)
-        .limit(1)
-        .get();
-      if (!districtByOrg.empty) {
-        districtAdminId = districtByOrg.docs[0].id;
-      }
-    }
-
-    if (!districtAdminId) return res.status(404).json({ error: 'Parent district admin not found' });
-
-    const subDoc = await db.collection('subscriptions').doc(districtAdminId).get();
-    if (!subDoc.exists) return res.status(404).json({ error: 'District has no subscription' });
-    const sub = subDoc.data() || {};
-    const active = sub.status === 'active' || sub.status === 'trialing';
-    if (!active) return res.status(403).json({ error: 'District subscription is not active' });
-
-    const packages = require('../config/packages');
-    const pkg = packages.getPackage('districtAdmin', sub.packageId);
-    const staffLimit = (pkg?.limits && (pkg.limits.staff || pkg.limits.staffPerSchool)) || 0;
-    const studentsPerStaff = (pkg?.limits && pkg.limits.studentsPerStaff) ? pkg.limits.studentsPerStaff : 0;
-
-    return res.status(200).json({
-      inherited: true,
-      role: 'school-admin',
-      fromDistrict: districtAdminId,
-      limits: {
-        staff: staffLimit,
-        studentsPerStaff: studentsPerStaff
-      }
-    });
-  } catch (e) {
-    console.error('Error fetching effective limits:', e);
-    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

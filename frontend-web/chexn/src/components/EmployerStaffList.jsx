@@ -4,12 +4,20 @@ import Spinner from './Spinner.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
 import UserManagement from './UserManagement.jsx';
 import SubscriptionModal from './SubscriptionModal.jsx';
+import UsageDashboard from './UsageDashboard.jsx';
 
-function EmployerStaffList({ refreshToken }) {
+function EmployerStaffList({
+  refreshToken,
+  subscription,
+  usageData,
+  profile,
+  isBillingOwner,
+  onSubscriptionUpdated,
+  onUsageRefresh
+}) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
-  const [isBillingOwner, setIsBillingOwner] = useState(false);
 
   const fetchStaff = async () => {
     try {
@@ -27,18 +35,6 @@ function EmployerStaffList({ refreshToken }) {
     fetchStaff();
   }, [refreshToken]);
 
-  // Fetch user profile to determine isBillingOwner
-  useEffect(() => {
-    apiClient.get('/users/me')
-      .then(response => {
-        const profile = response.data;
-        setIsBillingOwner(profile.uid === profile.billingOwnerId);
-      })
-      .catch(err => {
-        console.error('Failed to fetch user profile:', err);
-      });
-  }, []);
-
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
       <div className="flex items-center justify-between gap-2">
@@ -46,16 +42,29 @@ function EmployerStaffList({ refreshToken }) {
           <h3 className="text-lg font-semibold text-gray-900">Employer Staff Members</h3>
           <InfoTooltip description="See every staff account connected to your employer workspace, including their roles and contact info." />
         </div>
-        <button
-          onClick={() => setShowSubscriptionModal(true)}
-          className="rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-1.5 text-sm font-medium flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-          </svg>
-          Usage & Subscription
-        </button>
+        {subscription && isBillingOwner && (
+          <button
+            onClick={() => setShowSubscriptionModal(true)}
+            className="rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-1.5 text-sm font-medium flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            </svg>
+            Usage & Subscription
+          </button>
+        )}
       </div>
+
+      {subscription && (
+        <div className="mt-4 bg-white border border-gray-200 rounded-xl shadow-sm p-4 md:p-5">
+          <UsageDashboard
+            subscription={subscription}
+            usageData={usageData}
+            profile={profile}
+            isBillingOwner={isBillingOwner}
+          />
+        </div>
+      )}
       {loading && <div className="mt-3"><Spinner label="Loading staff members..." /></div>}
       {!loading && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -72,8 +81,18 @@ function EmployerStaffList({ refreshToken }) {
                     userId={member.uid}
                     endpointBase="/employer/staff"
                     userType="staff"
-                    onUpdated={fetchStaff}
-                    onDeleted={fetchStaff}
+                    onUpdated={() => {
+                      fetchStaff();
+                      if (onUsageRefresh) {
+                        onUsageRefresh();
+                      }
+                    }}
+                    onDeleted={() => {
+                      fetchStaff();
+                      if (onUsageRefresh) {
+                        onUsageRefresh();
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -85,13 +104,17 @@ function EmployerStaffList({ refreshToken }) {
         </div>
       )}
 
-      {/* Subscription Modal */}
-      <SubscriptionModal
-        isOpen={showSubscriptionModal}
-        onClose={() => setShowSubscriptionModal(false)}
-        userRole="employer-admin"
-        isBillingOwner={isBillingOwner}
-      />
+      {isBillingOwner && (
+        <SubscriptionModal
+          isOpen={showSubscriptionModal}
+          onClose={() => setShowSubscriptionModal(false)}
+          subscription={subscription}
+          usageData={usageData}
+          profile={profile}
+          isBillingOwner={isBillingOwner}
+          onSubscriptionUpdated={onSubscriptionUpdated}
+        />
+      )}
     </div>
   );
 }

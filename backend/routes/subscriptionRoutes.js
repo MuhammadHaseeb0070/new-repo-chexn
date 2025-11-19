@@ -343,8 +343,7 @@ router.post('/change-plan', authMiddleware, async (req, res) => {
     // If downgrading, validate that current usage doesn't exceed target package limits
     if (isDowngrade) {
       try {
-        const usageData = await getUsage(userId);
-        const usage = usageData.usage || {};
+        const usage = await getUsage(userId);
         const violations = [];
 
         // Check each limit type based on role
@@ -361,7 +360,7 @@ router.post('/change-plan', authMiddleware, async (req, res) => {
             });
           }
         } else if (subscriptionData.role === 'schoolAdmin') {
-          const currentStaff = usage.staff || 0;
+          const currentStaff = usage.staff_total || 0;
           const targetStaffLimit = targetPackage.limits?.staff || 0;
           if (currentStaff > targetStaffLimit) {
             violations.push({
@@ -374,10 +373,9 @@ router.post('/change-plan', authMiddleware, async (req, res) => {
           }
 
           // Check students per staff
-          if (usage.studentsByStaff) {
+          if (usage.studentsPerStaff) {
             const targetStudentsPerStaff = targetPackage.limits?.studentsPerStaff || 0;
-            for (const [staffId, staffData] of Object.entries(usage.studentsByStaff)) {
-              const studentCount = typeof staffData === 'object' ? staffData.count || 0 : staffData || 0;
+            for (const [, studentCount] of Object.entries(usage.studentsPerStaff)) {
               if (studentCount > targetStudentsPerStaff) {
                 violations.push({
                   resourceType: 'studentsPerStaff',
@@ -455,10 +453,9 @@ router.post('/change-plan', authMiddleware, async (req, res) => {
           }
 
           // Check employees per staff
-          if (usage.employeesByStaff) {
+          if (usage.employeesPerStaff) {
             const targetEmployeesPerStaff = targetPackage.limits?.employeesPerStaff || 0;
-            for (const [staffId, staffData] of Object.entries(usage.employeesByStaff)) {
-              const employeeCount = typeof staffData === 'object' ? staffData.count || 0 : staffData || 0;
+            for (const [, employeeCount] of Object.entries(usage.employeesPerStaff)) {
               if (employeeCount > targetEmployeesPerStaff) {
                 violations.push({
                   resourceType: 'employeesPerStaff',

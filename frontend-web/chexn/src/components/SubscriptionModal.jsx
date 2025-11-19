@@ -5,9 +5,15 @@ import InfoTooltip from './InfoTooltip.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
 import CollapsiblePanel from './CollapsiblePanel.jsx';
 
-function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
-  const [subscription, setSubscription] = useState(null);
-  const [loading, setLoading] = useState(true);
+function SubscriptionModal({
+  isOpen,
+  onClose,
+  subscription,
+  usageData,
+  profile,
+  isBillingOwner,
+  onSubscriptionUpdated
+}) {
   const [openingPortal, setOpeningPortal] = useState(false);
   const [error, setError] = useState('');
   const [showUpgradeOptions, setShowUpgradeOptions] = useState(false);
@@ -17,36 +23,29 @@ function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
   const [upgradeSuccess, setUpgradeSuccess] = useState('');
   const [changingPackageId, setChangingPackageId] = useState(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchSubscription();
-    }
-  }, [isOpen]);
-
-  const fetchSubscription = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await apiClient.get('/subscriptions/current');
-      setSubscription(response.data);
-    } catch (error) {
-      console.error('Error fetching subscription:', error);
-      setError('Failed to load subscription');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const mapRoleToFrontend = (role) => {
-    switch (role) {
-      case 'schoolAdmin':
+    if (!role) return 'parent';
+    const normalized = String(role).toLowerCase();
+
+    if (['parent', 'school', 'district', 'employer'].includes(normalized)) {
+      return normalized;
+    }
+
+    switch (normalized) {
+      case 'schooladmin':
+      case 'school-admin':
+      case 'school_admin':
         return 'school';
-      case 'districtAdmin':
+      case 'districtadmin':
+      case 'district-admin':
+      case 'district_admin':
         return 'district';
-      case 'employerAdmin':
+      case 'employeradmin':
+      case 'employer-admin':
+      case 'employer_admin':
         return 'employer';
       default:
-        return role;
+        return 'parent';
     }
   };
 
@@ -62,7 +61,8 @@ function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
     try {
       setPackagesLoading(true);
       setUpgradeError('');
-      const roleParam = mapRoleToFrontend(subscription.role || userRole || 'parent');
+      const derivedRole = subscription.role || profile?.role || 'parent';
+      const roleParam = mapRoleToFrontend(derivedRole);
       const response = await apiClient.get(`/subscriptions/packages/${roleParam}`);
       setPackages(response.data || []);
     } catch (err) {
@@ -105,7 +105,9 @@ function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
         setUpgradeSuccess(`Plan updated to ${pkg.name}.`);
       }
       
-      await fetchSubscription();
+      if (typeof onSubscriptionUpdated === 'function') {
+        onSubscriptionUpdated();
+      }
     } catch (error) {
       console.error('Error changing plan:', error);
       
@@ -207,6 +209,7 @@ function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
 
   if (!isOpen) return null;
 
+  const isLoading = !subscription;
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black bg-opacity-50" onClick={handleClose}>
       <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -227,7 +230,7 @@ function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
         </div>
 
         <div className="p-6 space-y-4">
-          {loading ? (
+          {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Spinner label="Loading subscription..." />
             </div>
@@ -393,7 +396,12 @@ function SubscriptionModal({ isOpen, onClose, userRole, isBillingOwner }) {
                 defaultOpen={false}
                 description="Track how many resources you've created versus your plan limits. Upgrade if you need more capacity."
               >
-                <UsageDashboard subscription={subscription} userRole={userRole} isBillingOwner={isBillingOwner} />
+                <UsageDashboard
+                  subscription={subscription}
+                  usageData={usageData}
+                  profile={profile}
+                  isBillingOwner={isBillingOwner}
+                />
               </CollapsiblePanel>
             </>
           )}

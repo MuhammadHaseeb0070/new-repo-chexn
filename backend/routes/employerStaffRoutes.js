@@ -4,7 +4,8 @@ const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
 const { checkLimit } = require('../middleware/subscriptionMiddleware');
-const { updateUsage, refreshUsage, checkLimit: checkLimitUtil } = require('../utils/usageTracker');
+const { getUsage } = require('../utils/usageTracker');
+const { withBillingOwner } = require('../utils/billingOwner');
 
 router.get('/my-employees', authMiddleware, async (req, res) => {
   try {
@@ -114,7 +115,7 @@ router.get('/checkins/:employeeId', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/create-employee', authMiddleware, checkLimit('employees'), async (req, res) => {
+router.post('/create-employee', authMiddleware, checkLimit('employeesPerStaff'), async (req, res) => {
   try {
     // Security Check: Verify the user is a staff member (supervisor/hr)
     const { billingOwnerId, organizationId, uid: creatorId, role: staffRole } = req.creator;
@@ -135,7 +136,7 @@ router.post('/create-employee', authMiddleware, checkLimit('employees'), async (
     });
 
     // Create Employee in Firestore
-    const userData = {
+    const userData = withBillingOwner({
       uid: newEmployeeUser.uid,
       email,
       firstName,
@@ -143,9 +144,8 @@ router.post('/create-employee', authMiddleware, checkLimit('employees'), async (
       role: 'employee',
       organizationId: organizationId,
       createdAt: new Date(),
-      creatorId: creatorId,
-      billingOwnerId: billingOwnerId
-    };
+      creatorId: creatorId
+    }, billingOwnerId);
     
     // Add phoneNumber if provided (future-proof for mobile/SMS)
     if (phoneNumber) {
@@ -164,16 +164,6 @@ router.post('/create-employee', authMiddleware, checkLimit('employees'), async (
     });
 
     // Send a 201 (Created) response with the new employee's data
-    const adminId = req.creator.creatorId;
-    const staffName = [req.creator.firstName, req.creator.lastName].filter(Boolean).join(' ') || req.creator.email || 'Staff';
-    try {
-      if (adminId) {
-        await updateUsage(adminId, `employee:${creatorId}`, 1, { staffName });
-      }
-    } catch (usageError) {
-      console.error('Error updating usage for employee creation:', usageError);
-    }
-
     res.status(201).json({
       uid: newEmployeeUser.uid,
       email,
@@ -235,15 +225,27 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
     }
 
     if (billingOwnerId) {
-      const limitCheck = await checkLimit(billingOwnerId, 'employee', users.length, req.user.uid);
-      if (!limitCheck.allowed) {
+      const [subscriptionDoc, usage] = await Promise.all([
+        db.collection('subscriptions').doc(billingOwnerId).get(),
+        getUsage(billingOwnerId)
+      ]);
+
+      if (!subscriptionDoc.exists || subscriptionDoc.data().status !== 'active') {
+        return res.status(403).json({ error: 'Subscription is not active.' });
+      }
+
+      const limits = subscriptionDoc.data().limits || {};
+      const perStaffLimit = limits.employeesPerStaff || 0;
+      const currentEmployees = usage.employeesPerStaff[creatorId] || 0;
+
+      if (currentEmployees + users.length > perStaffLimit) {
         return res.status(403).json({
           error: 'Limit exceeded',
-          message: limitCheck.reason || 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
-          current: limitCheck.current,
-          limit: limitCheck.limit,
-          requested: limitCheck.requested || users.length,
-          canUpgrade: true,
+          message: 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+          current: currentEmployees,
+          limit: perStaffLimit,
+          requested: users.length,
+          canUpgrade: true
         });
       }
     }
@@ -374,7 +376,7 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
           emailVerified: true
         });
 
-        const userDoc = {
+        const userDoc = withBillingOwner({
           uid: newEmployeeUser.uid,
           email,
           firstName,
@@ -382,9 +384,8 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
           role: 'employee',
           organizationId: organizationId,
           createdAt: new Date(),
-          creatorId: creatorId,
-          billingOwnerId: billingOwnerId
-        };
+          creatorId: creatorId
+        }, billingOwnerId);
 
         if (normalizedPhone) {
           userDoc.phoneNumber = normalizedPhone;
@@ -434,14 +435,6 @@ router.post('/bulk-create-employees', authMiddleware, async (req, res) => {
         });
         results.skipped++;
         console.error(`Error creating employee at row ${i + 1}:`, error);
-      }
-    }
-
-    if (results.created > 0 && adminId) {
-      try {
-        await refreshUsage(adminId);
-      } catch (usageError) {
-        console.error('Error refreshing usage after bulk employee import:', usageError);
       }
     }
 
@@ -610,19 +603,6 @@ router.delete('/employee/:employeeId', authMiddleware, async (req, res) => {
     });
     await batch.commit();
     
-    try {
-      const staffDoc = await db.collection('users').doc(staffId).get();
-      const staffData = staffDoc.data() || {};
-      const adminId = staffData.creatorId;
-      const staffName = [staffData.firstName, staffData.lastName].filter(Boolean).join(' ') || staffData.email || 'Staff';
-      if (adminId) {
-        await updateUsage(adminId, `employee:${staffId}`, -1, { staffName });
-        await refreshUsage(adminId);
-      }
-    } catch (usageError) {
-      console.error('Error updating usage after employee deletion:', usageError);
-    }
-
     res.status(200).json({ success: true, message: 'Employee deleted successfully' });
   } catch (error) {
     console.error('Error deleting employee:', error);

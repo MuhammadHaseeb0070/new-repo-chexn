@@ -4,7 +4,8 @@ const { admin, db } = require('../config/firebase');
 const authMiddleware = require('../middleware/authMiddleware');
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require('../utils/userHelpers');
 const { checkLimit } = require('../middleware/subscriptionMiddleware');
-const { updateUsage, refreshUsage } = require('../utils/usageTracker');
+const { withBillingOwner } = require('../utils/billingOwner');
+const { getUsage } = require('../utils/usageTracker');
 
 router.get('/my-staff', authMiddleware, async (req, res) => {
   try {
@@ -75,16 +76,17 @@ router.post('/create-staff', authMiddleware, checkLimit('staff'), async (req, re
     const schoolAdminId = req.user.uid;
     
     // Create the user in Firestore
-    await db.collection('users').doc(newStaffUser.uid).set({
-      uid: newStaffUser.uid,
-      email,
-      firstName,
-      lastName,
-      role,
-      organizationId: organizationId,
-      creatorId: schoolAdminId, // Store creator for management
-      billingOwnerId: billingOwnerId
-    });
+    await db.collection('users').doc(newStaffUser.uid).set(
+      withBillingOwner({
+        uid: newStaffUser.uid,
+        email,
+        firstName,
+        lastName,
+        role,
+        organizationId: organizationId,
+        creatorId: schoolAdminId // Store creator for management
+      }, billingOwnerId)
+    );
     
     // Store password for creator to view later
     await db.collection('userCredentials').doc(newStaffUser.uid).set({
@@ -94,35 +96,6 @@ router.post('/create-staff', authMiddleware, checkLimit('staff'), async (req, re
       password,
       createdAt: new Date()
     });
-
-    try {
-      await updateUsage(schoolAdminId, 'staff', 1);
-
-      // Also refresh district admin usage if this school belongs to a district
-      try {
-        const adminDoc2 = await db.collection('users').doc(schoolAdminId).get();
-        const schoolOrgId = adminDoc2.data() && adminDoc2.data().organizationId;
-        if (schoolOrgId) {
-          const schoolOrgDoc = await db.collection('organizations').doc(schoolOrgId).get();
-          const parentOrgId = schoolOrgDoc.exists ? schoolOrgDoc.data().parentOrganizationId : null;
-          if (parentOrgId) {
-            const districtAdminSnap = await db.collection('users')
-              .where('organizationId', '==', parentOrgId)
-              .where('role', '==', 'district-admin')
-              .limit(1)
-              .get();
-            if (!districtAdminSnap.empty) {
-              const districtAdminId = districtAdminSnap.docs[0].id;
-              await refreshUsage(districtAdminId);
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Error refreshing district usage after staff creation:', e);
-      }
-    } catch (usageError) {
-      console.error('Error updating usage for staff creation:', usageError);
-    }
 
     // Send a 201 (Created) response with the new user's data
     res.status(201).json({
@@ -182,16 +155,34 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Subscription required' });
     }
 
-    // Enforce plan limit (staff)
-    const limitCheck = await require('../utils/usageTracker').checkLimit(billingOwnerId, 'staff', users.length);
-    if (!limitCheck.allowed) {
+    const [subscriptionDoc, usage] = await Promise.all([
+      db.collection('subscriptions').doc(billingOwnerId).get(),
+      getUsage(billingOwnerId)
+    ]);
+
+    if (!subscriptionDoc.exists || subscriptionDoc.data().status !== 'active') {
+      return res.status(403).json({ error: 'Subscription is not active.' });
+    }
+
+    const limits = subscriptionDoc.data().limits || {};
+    const isManaged = adminDoc.data().uid !== billingOwnerId;
+    const staffLimit = isManaged ? limits.staffPerSchool : limits.staff;
+    if (typeof staffLimit !== 'number') {
+      return res.status(400).json({ error: 'Plan does not define staff limit' });
+    }
+
+    const currentStaff = isManaged
+      ? (usage.staffPerSchool[organizationId] || 0)
+      : usage.staff_total || 0;
+
+    if (currentStaff + users.length > staffLimit) {
       return res.status(403).json({
         error: 'Limit exceeded',
-        message: limitCheck.reason || 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
-        current: limitCheck.current,
-        limit: limitCheck.limit,
-        requested: limitCheck.requested || users.length,
-        canUpgrade: true,
+        message: 'You have reached your plan limit. Please open Manage Subscription to upgrade.',
+        current: currentStaff,
+        limit: staffLimit,
+        requested: users.length,
+        canUpgrade: true
       });
     }
 
@@ -278,7 +269,7 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
         });
 
         // Firestore doc
-        const userDoc = {
+        const userDoc = withBillingOwner({
           uid: newUser.uid,
           email,
           firstName: (firstName || '').trim(),
@@ -287,7 +278,7 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
           organizationId,
           createdAt: new Date(),
           creatorId: schoolAdminId
-        };
+        }, billingOwnerId);
         if (normalizedPhone) userDoc.phoneNumber = normalizedPhone;
         await db.collection('users').doc(newUser.uid).set(userDoc);
 
@@ -309,30 +300,6 @@ router.post('/bulk-create-staff', authMiddleware, async (req, res) => {
         results.errors.push({ row, email: email || 'N/A', error: errorMessage });
         results.skipped++;
       }
-    }
-
-    // Refresh usage for school admin and district (if any)
-    try {
-      await refreshUsage(schoolAdminId);
-      const adminDoc2 = await db.collection('users').doc(schoolAdminId).get();
-      const schoolOrgId = adminDoc2.data() && adminDoc2.data().organizationId;
-      if (schoolOrgId) {
-        const schoolOrgDoc = await db.collection('organizations').doc(schoolOrgId).get();
-        const parentOrgId = schoolOrgDoc.exists ? schoolOrgDoc.data().parentOrganizationId : null;
-        if (parentOrgId) {
-          const districtAdminSnap = await db.collection('users')
-            .where('organizationId', '==', parentOrgId)
-            .where('role', '==', 'district-admin')
-            .limit(1)
-            .get();
-          if (!districtAdminSnap.empty) {
-            const districtAdminId = districtAdminSnap.docs[0].id;
-            await refreshUsage(districtAdminId);
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error refreshing usage after bulk staff import:', e);
     }
 
     return res.status(200).json(results);
@@ -523,36 +490,6 @@ router.delete('/staff/:staffId', authMiddleware, async (req, res) => {
     await db.collection('users').doc(staffId).delete();
     await db.collection('userCredentials').doc(staffId).delete();
     
-    try {
-      await updateUsage(schoolAdminId, 'staff', -1);
-      await refreshUsage(schoolAdminId);
-
-      // Also refresh the parent district admin's usage, if any
-      try {
-        const adminDoc2 = await db.collection('users').doc(schoolAdminId).get();
-        const schoolOrgId = adminDoc2.data() && adminDoc2.data().organizationId;
-        if (schoolOrgId) {
-          const schoolOrgDoc = await db.collection('organizations').doc(schoolOrgId).get();
-          const parentOrgId = schoolOrgDoc.exists ? schoolOrgDoc.data().parentOrganizationId : null;
-          if (parentOrgId) {
-            const districtAdminSnap = await db.collection('users')
-              .where('organizationId', '==', parentOrgId)
-              .where('role', '==', 'district-admin')
-              .limit(1)
-              .get();
-            if (!districtAdminSnap.empty) {
-              const districtAdminId = districtAdminSnap.docs[0].id;
-              await refreshUsage(districtAdminId);
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Error refreshing district usage after staff deletion:', e);
-      }
-    } catch (usageError) {
-      console.error('Error updating usage after staff deletion:', usageError);
-    }
-
     res.status(200).json({ success: true, message: 'Staff deleted successfully' });
   } catch (error) {
     console.error('Error deleting staff:', error);

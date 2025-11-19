@@ -1,82 +1,99 @@
 const { db } = require('../config/firebase');
 const { getUsage } = require('../utils/usageTracker');
 
-/**
- * This is a middleware factory.
- * 
- * You call it with the limit key you want to check (e.g., 'children', 'staff', 'students').
- */
+function resolveLimitView(limitKey, { creator, usage, subscription, billingOwnerId }) {
+  const limits = subscription.limits || {};
+  const role = (creator.role || '').toLowerCase();
+  const orgId = creator.organizationId;
+  const creatorId = creator.uid;
+
+  switch (limitKey) {
+    case 'children':
+      return {
+        current: usage.children,
+        limit: limits.children
+      };
+    case 'schools':
+      return {
+        current: usage.schools,
+        limit: limits.schools
+      };
+    case 'staff': {
+      const isManagedSchoolAdmin = role === 'school-admin' && creatorId !== billingOwnerId;
+      if (isManagedSchoolAdmin) {
+        return {
+          current: usage.staffPerSchool[orgId] || 0,
+          limit: limits.staffPerSchool
+        };
+      }
+      return {
+        current: usage.staff_total,
+        limit: limits.staff
+      };
+    }
+    case 'studentsPerStaff':
+      return {
+        current: usage.studentsPerStaff[creatorId] || 0,
+        limit: limits.studentsPerStaff
+      };
+    case 'employeesPerStaff':
+      return {
+        current: usage.employeesPerStaff[creatorId] || 0,
+        limit: limits.employeesPerStaff
+      };
+    default:
+      return {
+        current: usage[`${limitKey}_total`] ?? usage[limitKey],
+        limit: limits[limitKey]
+      };
+  }
+}
+
 const checkLimit = (limitKeyToAssert) => {
   return async (req, res, next) => {
     try {
       const creatorId = req.user.uid;
-
-      // 1. Get the person making the request
       const creatorDoc = await db.collection('users').doc(creatorId).get();
       if (!creatorDoc.exists) {
         return res.status(404).json({ error: 'User profile not found.' });
       }
 
       const creator = creatorDoc.data();
-      const { role, billingOwnerId, organizationId } = creator;
-
+      const billingOwnerId = creator.billingOwnerId;
       if (!billingOwnerId) {
         return res.status(500).json({ error: 'User is missing billingOwnerId.' });
       }
 
-      // 2. Get the subscription of the billing owner
-      const subDoc = await db.collection('subscriptions').doc(billingOwnerId).get();
-      if (!subDoc.exists || subDoc.data().status !== 'active') {
+      const subscriptionDoc = await db.collection('subscriptions').doc(billingOwnerId).get();
+      if (!subscriptionDoc.exists) {
+        return res.status(403).json({ error: 'Subscription is not active.' });
+      }
+      const subscription = subscriptionDoc.data();
+      if (!subscription || subscription.status !== 'active') {
         return res.status(403).json({ error: 'Subscription is not active.' });
       }
 
-      const { limits } = subDoc.data();
-
-      // 3. Get the current usage for this billing owner
       const usage = await getUsage(billingOwnerId);
+      const view = resolveLimitView(limitKeyToAssert, {
+        creator: { ...creator, uid: creatorId },
+        usage,
+        subscription,
+        billingOwnerId
+      });
 
-      // 4. Determine the correct limit based on the creator's role
-      let actualLimit = 0;
-
-      // Define managed school roles that are part of a District plan
-      const managedSchoolRoles = ['school-admin', 'teacher', 'counselor', 'social-worker'];
-
-      // This is the special case for Group 3 (District)
-      if (managedSchoolRoles.includes(role) && creatorId !== billingOwnerId) {
-        // This is a "Managed" user under a District plan
-        switch (limitKeyToAssert) {
-          case 'staff':
-            actualLimit = limits.staffPerSchool;
-            break;
-          case 'students':
-            actualLimit = limits.studentsPerStaff;
-            break;
-          default:
-            // This case handles 'schools', 'employees', etc. which this user can't create.
-            // We let it fall through to the 'undefined' check, which is correct.
-            break;
-        }
-      } else {
-        // This is a "Standalone" Admin (Group 2) or any other top-level role
-        // They check their own plan's limits directly.
-        actualLimit = limits[limitKeyToAssert];
-      }
-
-      if (typeof actualLimit === 'undefined') {
+      if (typeof view.limit !== 'number') {
         return res.status(400).json({ error: `No limit defined for '${limitKeyToAssert}' on your plan.` });
       }
 
-      // 5. Check the usage against the correct limit
-      const currentUsage = usage[limitKeyToAssert] || 0;
-      if (currentUsage >= actualLimit) {
+      if ((view.current || 0) >= view.limit) {
         return res.status(403).json({ error: 'Limit Reached' });
       }
 
-      // All checks passed!
-      // Attach useful info to the request for the next handler
-      req.creator = creator;
+      req.creator = { ...creator, uid: creatorId };
       req.billingOwnerId = billingOwnerId;
-      req.organizationId = organizationId;
+      req.organizationId = creator.organizationId;
+      req.subscription = subscription;
+      req.usage = usage;
 
       next();
     } catch (error) {

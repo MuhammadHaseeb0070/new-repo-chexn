@@ -5,6 +5,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 const { checkLimit } = require("../middleware/subscriptionMiddleware");
 const { getUsage } = require("../utils/usageTracker");
 const { generatePassword, generateEmail, normalizePhoneNumber, isValidEmail, validatePassword } = require("../utils/userHelpers");
+const { withBillingOwner } = require('../utils/billingOwner');
 
 // GET /my-students - list children linked to the logged-in parent
 router.get("/my-students", authMiddleware, async (req, res) => {
@@ -104,15 +105,14 @@ router.post("/create-child", authMiddleware, checkLimit('children'), async (req,
     });
 
     // Create Child in Firestore
-    const userData = {
+    const userData = withBillingOwner({
       uid: newChildUser.uid,
       email,
       firstName,
       lastName,
       role: "student",
-      creatorId: parentId, // Store creator for management
-      billingOwnerId: billingOwnerId, // (formerly parentDoc.data().billingOwnerId)
-    };
+      creatorId: parentId // Store creator for management
+    }, billingOwnerId);
     
     // Add phoneNumber if provided (future-proof for mobile/SMS)
     if (phoneNumber) {
@@ -135,14 +135,6 @@ router.post("/create-child", authMiddleware, checkLimit('children'), async (req,
       { studentUids: admin.firestore.FieldValue.arrayUnion(newChildUser.uid) },
       { merge: true }
     );
-
-    // Update usage tracking
-    try {
-      await updateUsage(parentId, 'child', 1);
-    } catch (usageError) {
-      console.error('Error updating usage:', usageError);
-      // Don't fail the request if usage update fails
-    }
 
     // Send a 201 (Created) response with the new child's data (include password for initial display)
     res.status(201).json({
@@ -354,16 +346,15 @@ router.post("/bulk-create-children", authMiddleware, async (req, res) => {
           emailVerified: true
         });
 
-        const childData = {
+        const childData = withBillingOwner({
           uid: newChildUser.uid,
           email,
           firstName,
           lastName,
           role: 'student',
           creatorId: parentId,
-          billingOwnerId: billingOwnerId,
           createdAt: new Date()
-        };
+        }, billingOwnerId);
 
         if (normalizedPhone) {
           childData.phoneNumber = normalizedPhone;
@@ -606,16 +597,6 @@ router.delete('/child/:childId', authMiddleware, async (req, res) => {
       batch.delete(doc.ref);
     });
     await batch.commit();
-    
-    // Update usage tracking
-    try {
-      await updateUsage(parentId, 'child', -1);
-      // Ensure recalculation in case of any drift
-      await refreshUsage(parentId);
-    } catch (usageError) {
-      console.error('Error updating usage:', usageError);
-      // Don't fail the request if usage update fails
-    }
     
     res.status(200).json({ success: true, message: 'Child deleted successfully' });
   } catch (error) {
