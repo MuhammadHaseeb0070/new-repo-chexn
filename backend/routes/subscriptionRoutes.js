@@ -228,8 +228,8 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
         },
         quantity: 1,
       }],
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/subscription/cancel`,
+      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`,
       metadata: {
         userId: userId,
         role: backendRole,
