@@ -1,16 +1,32 @@
 importScripts("https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js");
 
-// Copy of firebaseConfig from src/config.js
-const firebaseConfig = {
-  apiKey: "AIzaSyDtPa6Fk4m_2WxLyKBBEulC02bHYLRDJR8",
-  authDomain: "chexn-9745b.firebaseapp.com",
-  projectId: "chexn-9745b",
-  storageBucket: "chexn-9745b.firebasestorage.app",
-  messagingSenderId: "75693882893",
-  appId: "1:75693882893:web:21e9513cc2b85555a09f44",
-  measurementId: "G-7DT1E0KS4F",
+// Firebase config - will be set by main app via postMessage
+// Default fallback values (these should match your .env values)
+let firebaseConfig = {
+  "apiKey": "",
+  "authDomain": "",
+  "projectId": "",
+  "storageBucket": "",
+  "messagingSenderId": "",
+  "appId": "",
+  "measurementId": ""
 };
+
+// Listen for config from main thread
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'FIREBASE_CONFIG' && event.data.config) {
+    firebaseConfig = event.data.config;
+    // Re-initialize Firebase with new config if needed
+    if (!firebase.apps || firebase.apps.length === 0) {
+      firebase.initializeApp(firebaseConfig);
+    }
+  }
+});
+
+// Initialize Firebase immediately with default config
+// The config will be updated via message from main app if different
+firebase.initializeApp(firebaseConfig);
 
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();

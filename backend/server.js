@@ -28,7 +28,31 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- Middlewares ---
-app.use(cors());
+// Get CORS origins from environment variable
+// Default includes localhost for development and production URLs
+const frontendUrl = process.env.FRONTEND_URL || 'https://chexn.com';
+let corsOrigins;
+if (process.env.CORS_ORIGINS) {
+  corsOrigins = process.env.CORS_ORIGINS.split(',').map(origin => origin.trim());
+} else {
+  corsOrigins = ['http://localhost:5173', frontendUrl];
+  // Add www version if frontendUrl is a valid URL
+  try {
+    const url = new URL(frontendUrl);
+    if (!url.hostname.startsWith('www.')) {
+      corsOrigins.push(`https://www.${url.hostname}`);
+    }
+  } catch (e) {
+    // If frontendUrl is not a valid URL, just use it as-is
+  }
+}
+
+app.use(cors({
+  // The 'origin' list explicitly allows your frontend running on localhost:5173 
+  // (which is necessary for development) and the deployed URL (for production).
+  origin: corsOrigins,
+  credentials: true // Allows cookies and Authorization headers to be sent
+}));
 
 // Stripe webhook route needs raw body - must be registered BEFORE express.json()
 // We'll handle this route directly here to ensure raw body parsing

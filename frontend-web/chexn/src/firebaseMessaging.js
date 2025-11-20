@@ -2,8 +2,8 @@ import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { app } from './firebaseClient.js';
 import apiClient from './apiClient.js';
 
-// TODO: Paste your VAPID key from Firebase Console > Cloud Messaging > Web Push certificates
-const VAPID_KEY = 'BPPzaRvzF_1LllZRdC5u0iEKeTemNACN6E2TfQ3xKUL_TxgoOPbPB_tGWYXP8PwfcNxLztH5Lnafyl5LCqjx4uI';
+// VAPID Key from environment variables
+const VAPID_KEY = import.meta.env.VITE_VAPID_KEY || '';
 
 const messaging = getMessaging(app);
 

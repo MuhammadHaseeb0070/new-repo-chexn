@@ -1,11 +1,12 @@
+// Firebase Configuration - All values from environment variables
 export const firebaseConfig = {
-  apiKey: "AIzaSyDtPa6Fk4m_2WxLyKBBEulC02bHYLRDJR8",
-  authDomain: "chexn-9745b.firebaseapp.com",
-  projectId: "chexn-9745b",
-  storageBucket: "chexn-9745b.firebasestorage.app",
-  messagingSenderId: "75693882893",
-  appId: "1:75693882893:web:21e9513cc2b85555a09f44",
-  measurementId: "G-7DT1E0KS4F",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "",
 };
 
 const DEFAULT_LOCAL_API_URL = "http://localhost:5000/api";
@@ -40,4 +41,5 @@ const normalizedEnvApiUrl = normalizeUrl(envApiUrl);
 
 export const API_URL = normalizedEnvApiUrl || getBrowserDefaultApiUrl();
 
-export const STRIPE_PUBLIC_KEY = "YOUR_PK_TEST_KEY_HERE";
+// Stripe Public Key - Must be set in environment variables
+export const STRIPE_PUBLIC_KEY = import.meta.env.VITE_STRIPE_PUBLIC_KEY || "";
