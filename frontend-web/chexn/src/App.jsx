@@ -3,6 +3,7 @@ import { auth } from "./firebaseClient.js";
 import { requestNotificationPermission, setupForegroundMessageHandler } from "./firebaseMessaging.js";
 import { onAuthStateChanged, signOut, sendEmailVerification } from "firebase/auth";
 import Login from "./components/login.jsx";
+import LandingPage from "./components/LandingPage.jsx";
 import Spinner from "./components/Spinner.jsx";
 import apiClient from "./apiClient.js";
 import CheckIn from "./components/CheckIn.jsx";
@@ -226,7 +227,7 @@ function App() {
       )}
 
       {/* 2. User is logged out */}
-      {!loading && !authUser && <Login />}
+      {!loading && !authUser && <LandingPage />}
 
       {/* 3. User is logged in BUT email is not verified */}
       {!loading && authUser && !authUser.emailVerified && (
